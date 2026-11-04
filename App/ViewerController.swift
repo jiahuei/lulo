@@ -212,7 +212,7 @@ final class ViewerController: NSWindowController {
         let generation = session.generation
         worker.addOperation { [weak self] in
             let result = Result { try ImageLoader.discover(in: access.url) }
-            withExtendedLifetime(access) {
+            _ = withExtendedLifetime(access) {
                 Task { @MainActor [weak self] in
                     guard let self, self.session.generation == generation else { return }
                     switch result {
@@ -253,7 +253,7 @@ final class ViewerController: NSWindowController {
             let result = Result {
                 try LoadedImage(image: ImageLoader.decode(at: url), details: ImageLoader.details(at: url))
             }
-            withExtendedLifetime(access) {
+            _ = withExtendedLifetime(access) {
                 Task { @MainActor [weak self] in
                     guard let self, self.request == currentRequest else { return }
                     switch result {
