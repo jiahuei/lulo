@@ -1,0 +1,45 @@
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Signing credentials
+*.p12
+*.mobileprovision
+*.cer
+*.key
+
+# Xcode and Swift build output
+DerivedData/
+build/
+.build/
+.swiftpm/
+
+# Xcode user settings
+xcuserdata/
+*.xcuserstate
+
+# Archives, debug symbols, and test results
+*.xcarchive
+*.dSYM/
+*.xcresult/
+
+# Dependencies and caches
+node_modules/
+.cache/
+__pycache__/
+
+# Local task records
+/tasks/
+
+# macOS application and distribution artifacts
+*.app/
+*.dmg
+*.pkg

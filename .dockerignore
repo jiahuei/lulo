@@ -1,0 +1,33 @@
+# Git metadata
+.git
+
+# Local environment files
+.env
+.env.*
+
+# Signing credentials
+*.p12
+*.mobileprovision
+*.cer
+*.key
+
+# Xcode and Swift build output
+DerivedData
+.build
+.swiftpm
+build
+
+# Dependencies
+node_modules
+
+# Archives and test results
+*.xcarchive
+*.xcresult
+
+# Local task records
+tasks
+
+# macOS application and distribution artifacts
+*.app
+*.dmg
+*.pkg
