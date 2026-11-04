@@ -20,7 +20,12 @@ final class ViewerController: NSWindowController {
     private let direction = NSPopUpButton()
     private let rating = NSPopUpButton()
     private let format = NSPopUpButton()
-    private let info = NSButton(checkboxWithTitle: "Metadata", target: nil, action: nil)
+    private let info = NSButton()
+    private let browse = NSButton()
+    private let previous = NSButton()
+    private let next = NSButton()
+    private let browsePopover = NSPopover()
+    private let filterSummary = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
     private let worker = OperationQueue()
     private var fileAccess: FileAccess?
@@ -36,7 +41,8 @@ final class ViewerController: NSWindowController {
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Lulo"
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 880, height: 400)
+        window.minSize = NSSize(width: 720, height: 400)
+        window.toolbarStyle = .unified
         super.init(window: window)
         worker.maxConcurrentOperationCount = 1
         worker.qualityOfService = .userInitiated
@@ -75,21 +81,24 @@ final class ViewerController: NSWindowController {
         display.selectItem(withTitle: session.preferences.display.rawValue)
         sorting.selectItem(withTitle: session.preferences.sort.rawValue)
         direction.selectItem(at: session.preferences.ascending ? 0 : 1)
-        info.target = self
-        info.action = #selector(toggleSidebar)
-        let open = NSButton(title: "Open…", target: self, action: #selector(openPanel))
-        let previous = NSButton(title: "Previous", target: self, action: #selector(previousImage))
-        let next = NSButton(title: "Next", target: self, action: #selector(nextImage))
-        let controls = NSStackView(views: [open, previous, next, display, sorting, direction, info])
-        controls.spacing = 8
-        let filters = NSStackView(views: [rating, format, status])
-        filters.spacing = 8
+        configureButton(previous, title: "Previous image", symbol: "chevron.left", action: #selector(previousImage))
+        configureButton(next, title: "Next image", symbol: "chevron.right", action: #selector(nextImage))
+        configureButton(info, title: "Show metadata", symbol: "sidebar.right", action: #selector(toggleSidebar))
+        info.setButtonType(.toggle)
+        configureButton(browse, title: "Browse", symbol: "line.3.horizontal.decrease", action: #selector(showBrowse))
+        browse.title = "Browse"
+        browse.imagePosition = .imageLeading
+        makeBrowsePopover()
+        let toolbar = NSToolbar(identifier: "Viewer")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+
         metadata.isEditable = false
         metadata.isSelectable = true
         metadata.isVerticallyResizable = true
         metadata.isHorizontallyResizable = false
-        metadata.font = .systemFont(ofSize: 13)
-        metadata.textContainerInset = NSSize(width: 12, height: 12)
+        metadata.textContainerInset = NSSize(width: 16, height: 20)
         metadata.autoresizingMask = [.width]
         metadata.textContainer?.widthTracksTextView = true
         metadata.setAccessibilityLabel("Image metadata")
@@ -103,30 +112,138 @@ final class ViewerController: NSWindowController {
         content.distribution = .fill
         content.spacing = 0
         canvas.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        status.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        status.textColor = .secondaryLabelColor
+        filterSummary.font = .systemFont(ofSize: 11)
+        filterSummary.textColor = .secondaryLabelColor
+        filterSummary.lineBreakMode = .byTruncatingTail
+        filterSummary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let footer = NSView()
+        for label in [status, filterSummary] {
+            label.translatesAutoresizingMaskIntoConstraints = false
+            footer.addSubview(label)
+        }
         let root = NSView()
         window.contentView = root
-        for view in [controls, filters, content] {
+        for view in [content, footer] {
             view.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(view)
         }
         NSLayoutConstraint.activate([
-            controls.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
-            controls.topAnchor.constraint(equalTo: root.topAnchor, constant: 10),
-            controls.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -12),
-            filters.leadingAnchor.constraint(equalTo: controls.leadingAnchor),
-            filters.topAnchor.constraint(equalTo: controls.bottomAnchor, constant: 8),
-            filters.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -12),
-            content.topAnchor.constraint(equalTo: filters.bottomAnchor, constant: 10),
+            content.topAnchor.constraint(equalTo: root.topAnchor),
             content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            content.bottomAnchor.constraint(equalTo: footer.topAnchor),
             canvas.heightAnchor.constraint(equalTo: content.heightAnchor),
             sidebar.heightAnchor.constraint(equalTo: content.heightAnchor),
+            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            footer.heightAnchor.constraint(equalToConstant: 30),
+            status.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: 16),
+            status.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            filterSummary.leadingAnchor.constraint(greaterThanOrEqualTo: status.trailingAnchor, constant: 20),
+            filterSummary.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -16),
+            filterSummary.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
         ])
         canvas.navigate = { [weak self] delta in self?.navigate(delta) }
         canvas.displayDefault = session.preferences.display
         canvas.resetZoom()
+        canvas.showMessage(
+            "Open an image", detail: "View JPEG, PNG, and HEIF images. Your originals stay unchanged.",
+            actionTitle: "Open Image…", action: { [weak self] in self?.openPanel() })
+        updateStatus()
         window.makeFirstResponder(canvas)
+    }
+
+    private func configureButton(_ button: NSButton, title: String, symbol: String, action: Selector) {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        button.imagePosition = .imageOnly
+        button.bezelStyle = .texturedRounded
+        button.toolTip = title
+        button.setAccessibilityLabel(title)
+        button.target = self
+        button.action = action
+    }
+
+    private func makeBrowsePopover() {
+        let heading = NSTextField(labelWithString: "Browse images")
+        heading.font = .systemFont(ofSize: 15, weight: .semibold)
+        let reset = NSButton(title: "Clear Filters", target: self, action: #selector(clearFilters))
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "Sort by"), sorting],
+            [NSTextField(labelWithString: "Direction"), direction],
+            [NSTextField(labelWithString: "Rating"), rating],
+            [NSTextField(labelWithString: "File type"), format],
+        ])
+        grid.rowSpacing = 12
+        grid.columnSpacing = 16
+        grid.column(at: 0).xPlacement = .trailing
+        grid.column(at: 1).xPlacement = .fill
+        let note = NSTextField(wrappingLabelWithString: "Rating and file type filters apply together.")
+        note.font = .systemFont(ofSize: 11)
+        note.textColor = .secondaryLabelColor
+        let stack = NSStackView(views: [heading, grid, note, reset])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 16
+        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        let controller = NSViewController()
+        controller.view = stack
+        browsePopover.contentViewController = controller
+        browsePopover.behavior = .transient
+        browsePopover.contentSize = NSSize(width: 340, height: 260)
+    }
+
+    @objc private func showBrowse() {
+        if browsePopover.isShown {
+            browsePopover.performClose(nil)
+        } else {
+            browsePopover.show(relativeTo: browse.bounds, of: browse, preferredEdge: .minY)
+        }
+    }
+
+    @objc private func clearFilters() {
+        rating.selectItem(at: 0)
+        format.selectItem(at: 0)
+        filtersChanged()
+    }
+
+    private func showMetadata(_ details: ImageDetails) {
+        let text = NSMutableAttributedString(string: "")
+        for group in details.groups where !group.fields.isEmpty {
+            let heading = NSMutableParagraphStyle()
+            heading.paragraphSpacingBefore = text.length == 0 ? 0 : 18
+            heading.paragraphSpacing = 8
+            text.append(
+                NSAttributedString(
+                    string: group.name + "\n",
+                    attributes: [
+                        .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                        .foregroundColor: NSColor.labelColor, .paragraphStyle: heading,
+                    ]))
+            for field in group.fields {
+                text.append(
+                    NSAttributedString(
+                        string: field.name + "\n",
+                        attributes: [
+                            .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor,
+                        ]))
+                let value = NSMutableParagraphStyle()
+                value.paragraphSpacing = 10
+                value.lineBreakMode = .byCharWrapping
+                text.append(
+                    NSAttributedString(
+                        string: field.value + "\n",
+                        attributes: [
+                            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor,
+                            .paragraphStyle: value,
+                        ]))
+            }
+        }
+        metadata.textStorage?.setAttributedString(text)
+        metadata.scrollToBeginningOfDocument(nil)
     }
 
     @objc func openPanel() {
@@ -141,6 +258,8 @@ final class ViewerController: NSWindowController {
     func open(_ url: URL) {
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+        browsePopover.performClose(nil)
+        window?.makeFirstResponder(canvas)
         folderPanel?.cancel(nil)
         folderPanel = nil
         worker.cancelAllOperations()
@@ -152,6 +271,7 @@ final class ViewerController: NSWindowController {
         rating.selectItem(at: 0)
         format.selectItem(at: 0)
         info.state = .off
+        info.setAccessibilityLabel("Show metadata")
         sidebar.isHidden = true
         canvas.displayDefault = session.preferences.display
         canvas.resetZoom()
@@ -159,7 +279,10 @@ final class ViewerController: NSWindowController {
         status.stringValue = ""
         do { _ = try ImageLoader.validateFormat(url) } catch {
             canvas.image = nil
-            canvas.message = error.localizedDescription
+            canvas.showMessage(
+                "Cannot open this image", detail: error.localizedDescription,
+                actionTitle: "Open Another Image…", action: { [weak self] in self?.openPanel() })
+            updateStatus()
             return
         }
         loadSelection()
@@ -242,12 +365,14 @@ final class ViewerController: NSWindowController {
         metadata.string = ""
         canvas.resetZoom()
         guard let url = session.selectedURL else {
-            canvas.message = "No images match the current filters."
+            canvas.showMessage(
+                "No matching images", detail: "No images match the current filters.",
+                actionTitle: "Clear Filters", action: { [weak self] in self?.clearFilters() })
             updateStatus()
             return
         }
-        canvas.message = "Loading image…"
-        window?.title = "\(url.lastPathComponent) — Lulo"
+        canvas.showMessage("Loading image…", detail: url.lastPathComponent, loading: true)
+        window?.title = url.lastPathComponent
         let access = url == openedURL ? fileAccess : folderAccess
         let operation = BlockOperation { [weak self] in
             let result = Result {
@@ -266,10 +391,11 @@ final class ViewerController: NSWindowController {
                         }
                         self.canvas.image = loaded.image
                         self.canvas.setAccessibilityLabel(url.lastPathComponent)
-                        self.metadata.string = loaded.details.groups.filter { !$0.fields.isEmpty }.map { group in
-                            group.name + "\n" + group.fields.map { "\($0.name): \($0.value)" }.joined(separator: "\n")
-                        }.joined(separator: "\n\n")
-                    case .failure(let error): self.canvas.message = error.localizedDescription
+                        self.showMetadata(loaded.details)
+                    case .failure(let error):
+                        self.canvas.showMessage(
+                            "Cannot display this image", detail: error.localizedDescription,
+                            actionTitle: "Open Another Image…", action: { [weak self] in self?.openPanel() })
                     }
                     self.updateStatus()
                 }
@@ -285,11 +411,22 @@ final class ViewerController: NSWindowController {
         if let index = entries.firstIndex(where: { $0.url == session.selectedURL }) {
             status.stringValue = "\(index + 1) of \(entries.count)"
         } else {
-            status.stringValue = "\(entries.count) images"
+            status.stringValue = openedURL == nil ? "JPEG · PNG · HEIF" : "\(entries.count) images"
         }
+        previous.isEnabled = !entries.isEmpty
+        next.isEnabled = !entries.isEmpty
+        var filters: [String] = []
+        if let rating = session.filter.rating { filters.append(rating == 0 ? "Unrated / 0 Stars" : "\(rating) Stars") }
+        if let format = session.filter.format { filters.append(format.rawValue) }
+        filterSummary.stringValue = filters.isEmpty ? "" : "Filtered by " + filters.joined(separator: " · ")
+        filterSummary.toolTip = filterSummary.stringValue
+        browse.title = filters.isEmpty ? "Browse" : "Browse (\(filters.count))"
+        browse.setAccessibilityLabel(
+            filters.isEmpty ? "Browse images" : "Browse images, \(filters.count) active filters")
     }
 
     private func navigate(_ delta: Int) {
+        guard session.selectedURL != nil else { return }
         session.navigate(delta)
         loadSelection()
     }
@@ -322,6 +459,51 @@ final class ViewerController: NSWindowController {
     @objc func toggleSidebar() {
         session.sidebarVisible.toggle()
         info.state = session.sidebarVisible ? .on : .off
+        info.setAccessibilityLabel(session.sidebarVisible ? "Hide metadata" : "Show metadata")
         sidebar.isHidden = !session.sidebarVisible
+    }
+}
+
+extension ViewerController: NSToolbarDelegate {
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [
+            .init("Open"), .init("Previous"), .init("Next"), .flexibleSpace, .init("Display"), .init("Browse"),
+            .init("Metadata"),
+        ]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        switch identifier.rawValue {
+        case "Open":
+            item.label = "Open Image"
+            item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Open image")
+            item.target = self
+            item.action = #selector(openPanel)
+        case "Previous":
+            item.label = "Previous Image"
+            item.view = previous
+        case "Next":
+            item.label = "Next Image"
+            item.view = next
+        case "Display":
+            item.label = "Default Zoom"
+            item.view = display
+        case "Browse":
+            item.label = "Browse"
+            item.view = browse
+        case "Metadata":
+            item.label = "Metadata"
+            item.view = info
+        default: return nil
+        }
+        return item
     }
 }

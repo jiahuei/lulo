@@ -8,7 +8,17 @@ Finder and File > Open reuse one viewer window. The initial window fills the scr
 
 JPEG (including JPG), PNG, and HEIF (including HEIC) are supported. A direct RAW open produces an unsupported-format message. The app requests the containing folder before enumerating siblings. Canceling leaves the directly opened image viewable; File > Allow Folder Navigation can request access again. Grants last for the process lifetime or until replaced, with ongoing work retaining its own grant. There are no persisted bookmarks. Discovery is nonrecursive, excludes hidden files and symbolic links, and retains unreadable supported files so errors do not remove navigation choices. The directly opened file remains in the session even if discovery skips it.
 
-Left/right arrows on the image, Previous/Next buttons, and Command-[ / Command-] navigate with wrapping. Use the menu shortcuts when a filter or metadata text control has keyboard focus. Missing, corrupt, unsupported, and inaccessible files produce recoverable messages.
+Left/right arrows on the image, toolbar navigation buttons, and Command-[ / Command-] navigate with wrapping. Use the menu shortcuts when a filter or metadata text control has keyboard focus. Missing, corrupt, unsupported, and inaccessible files produce recoverable messages.
+
+## Interface
+
+The image occupies the main workspace. A native unified toolbar contains Open Image, Previous/Next, the saved zoom default, Browse, and Metadata. System fonts and semantic colors follow macOS light/dark appearance. The window title identifies the selected file.
+
+Browse opens a transient popover with labeled sort, direction, rating, and file-type controls. Changes apply immediately. The Browse button reports the number of active filters, and the status bar names those filters beside the image position. Clear Filters is available both in Browse and in the no-matches state. New explicit opens dismiss Browse and return keyboard focus to the image.
+
+The initial empty state offers Open Image, loading has native progress feedback, and failed image loads offer Open Another Image. The metadata inspector uses distinct group headings, secondary field labels, and selectable values with wrapping for long paths/comments. Its width is 300 points; the viewer supports windows down to 720 points wide.
+
+The design/development pass used [nice-skills design-research](https://github.com/EmbeddedLLM/nice-skills/tree/a11b1778ac52bd3fd08bc68290ecb09fcadb3b77/skills/design-research) and [software-workflow](https://github.com/EmbeddedLLM/nice-skills/tree/a11b1778ac52bd3fd08bc68290ecb09fcadb3b77/skills/software-workflow). The relevant guidance was actionable empty states, visible focus, labeled controls, and preserving the established platform. The catalog does not cover AppKit; native integration follows [Apple's toolbar guidance](https://developer.apple.com/design/human-interface-guidelines/toolbars). No skill scripts or dependencies run inside Lulo.
 
 ## Display
 

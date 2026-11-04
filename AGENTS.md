@@ -149,7 +149,7 @@ For application changes:
 
 1. Inspect the test and build workflow added with the app and use its pinned Xcode/Swift toolchain.
 2. Confirm the selected versions: `xcodebuild -version` and `swift --version`.
-3. Run `swift format lint --strict --recursive Package.swift Sources Tests App`; apply formatting with `swift format format --in-place --recursive Package.swift Sources Tests App`.
+3. Run `swift format lint --strict --recursive Package.swift Sources Tests App tools`; apply formatting with `swift format format --in-place --recursive Package.swift Sources Tests App tools`.
 4. Run `swift test` on macOS.
 5. Run the unsigned macOS build and platform integration checks configured in CI.
 6. Record interactive macOS verification separately; compilation does not prove correct file access or rendering.

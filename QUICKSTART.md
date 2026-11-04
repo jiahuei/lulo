@@ -10,7 +10,7 @@ Install Xcode 16.4, open it once to complete setup, then select the same toolcha
 export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
 xcodebuild -version
 swift --version
-swift format lint --strict --recursive Package.swift Sources Tests App
+swift format lint --strict --recursive Package.swift Sources Tests App tools
 swift test
 xcodebuild -project Lulo.xcodeproj -scheme Lulo -configuration Debug -destination 'platform=macOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build analyze
 ```
@@ -22,8 +22,20 @@ The Swift package contains `LuloCore` for preferences, ordering, selection, and 
 Format changed Swift files with the pinned toolchain:
 
 ```sh
-swift format format --in-place --recursive Package.swift Sources Tests App
+swift format format --in-place --recursive Package.swift Sources Tests App tools
 ```
+
+## Native UI previews
+
+After the unsigned Debug build, capture the actual AppKit viewer in light/dark appearance and at regular/compact sizes:
+
+```sh
+bash tools/render-previews.sh
+```
+
+The command compiles the current view/controller with a small preview entry point, reusing the build's package objects. It generates a synthetic image, declines the folder permission sheet, captures native view hierarchies under `build/previews/`, and checks that the image area remains usable with the inspector open. CI uploads these PNGs as the `native-previews` artifact for seven days. `bash tools/render-previews.sh <output-directory> <app-source-directory>` can render another revision's view/controller for comparison.
+
+This unsandboxed development helper is not bundled with Lulo. View captures establish layout evidence; they do not establish Finder integration, sandbox enforcement, mouse/trackpad behavior, display color fidelity, or VoiceOver behavior. The interactive checklist remains required.
 
 ## Documentation checks
 
