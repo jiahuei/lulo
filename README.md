@@ -4,6 +4,8 @@ A native, read-only macOS image viewer for JPEG, PNG, and HEIF images. Requires 
 
 Lulo opens images in one reused window, asks permission before browsing their containing folder, and supports wrapping keyboard navigation, fit/100% display, scroll zoom, drag panning, embedded metadata, and rating/type filters. Display and sorting preferences persist across launches. RAW decoding, editing, sidecars, and library management are outside the initial scope.
 
+To try a PR without Xcode, use its **Lulo test build** download comment. The ZIP supports Apple Silicon and Intel on macOS 14+; see [download and first-launch instructions](QUICKSTART.md#download-a-pr-test-build).
+
 Open `Lulo.xcodeproj` with Xcode 16.4 and run the shared **Lulo** scheme. See the development guide for command-line checks and local signing. The initial implementation needs the interactive macOS verification listed below before release.
 
 - [Development setup and checks](QUICKSTART.md)

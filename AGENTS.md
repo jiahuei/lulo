@@ -139,9 +139,9 @@ Before reporting completion, review the final diff for correctness, unnecessary 
 - Start with changed files for fast feedback, then run the applicable repository-wide checks used by CI.
 - When editing or creating Markdown files, run every applicable formatting or linting checks.
 
-The push-only documentation CI runs `npx --yes prettier@3.8.3 --check '**/*.md' '.github/**/*.yml' .prettierrc`. Use that exact version for formatting this foundation. It needs registry access if not cached.
+The push-only documentation CI runs `npx --yes prettier@3.8.3 --check '**/*.md' '.github/**/*.yml' '.github/scripts/*.cjs' .prettierrc`. Use that exact version for formatting this foundation. It needs registry access if not cached.
 
-Swift formatting, package tests, and unsigned build/static analysis run in `.github/workflows/macos.yml`. The repository `.swift-format` configuration applies to package and app sources.
+PR-comment regression tests run with `node --test .github/scripts/comment-pr-build.test.cjs` in the lint workflow. Swift formatting, package tests, unsigned build/static analysis, and universal test-app packaging run in `.github/workflows/macos.yml`. Packaging uses `bash tools/package-app.sh`; the separate `pr-build-comment.yml` workflow runs trusted default-branch code and only reads build metadata before commenting. The repository `.swift-format` configuration applies to package and app sources.
 
 #### Swift and macOS
 

@@ -3,7 +3,8 @@ name: macOS
 on:
   push:
     branches:
-      - "**"
+      - main
+  pull_request:
 
 permissions:
   contents: read
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
@@ -39,3 +40,18 @@ jobs:
           name: native-previews
           path: build/previews/*.png
           retention-days: 7
+      - name: Package universal test app
+        run: bash tools/package-app.sh
+      - name: Save test app
+        id: app
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Lulo-macOS-universal
+          path: build/distribution/Lulo-macOS-universal.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Link test app in run summary
+        env:
+          ARTIFACT_URL: ${{ steps.app.outputs.artifact-url }}
+        run: echo "[Download Lulo for macOS 14+ (Apple Silicon and Intel)]($ARTIFACT_URL)" >> "$GITHUB_STEP_SUMMARY"

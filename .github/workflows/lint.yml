@@ -27,5 +27,8 @@ jobs:
         with:
           node-version: 24
 
+      - name: Test PR build comments
+        run: node --test .github/scripts/comment-pr-build.test.cjs
+
       - name: Check files using Prettier
-        run: npx --yes prettier@3.8.3 --check '**/*.md' '.github/**/*.yml' .prettierrc
+        run: npx --yes prettier@3.8.3 --check '**/*.md' '.github/**/*.yml' '.github/scripts/*.cjs' .prettierrc
