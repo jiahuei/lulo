@@ -1,0 +1,147 @@
+import Foundation
+import ImageIO
+import LuloCore
+import Testing
+import UniformTypeIdentifiers
+
+@testable import LuloImaging
+
+private func withFolder(_ work: (URL) throws -> Void) throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    try work(folder)
+}
+
+private func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 72, rating: Int? = nil) throws {
+    let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+    let context = try #require(
+        CGContext(
+            data: nil, width: 12, height: 8, bitsPerComponent: 8, bytesPerRow: 48,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 0.5))
+    context.fill(CGRect(x: 0, y: 0, width: 6, height: 8))
+    context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+    context.fill(CGRect(x: 6, y: 0, width: 6, height: 8))
+    let image = try #require(context.makeImage())
+    let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil))
+    let properties: [CFString: Any] = [
+        kCGImagePropertyOrientation: orientation,
+        kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi,
+        kCGImagePropertyExifDictionary: [
+            "DateTimeOriginal": "2026:01:02 03:04:05", "FNumber": 2.8, "BodySerialNumber": "SYNTHETIC",
+        ],
+        kCGImagePropertyTIFFDictionary: ["Make": "Synthetic Camera", "Artist": "Lulo Tests"],
+    ]
+    if let rating {
+        let metadata = CGImageMetadataCreateMutable()
+        #expect(CGImageMetadataSetValueWithPath(metadata, nil, "xmp:Rating" as CFString, String(rating) as CFString))
+        CGImageDestinationAddImageAndMetadata(destination, image, metadata, properties as CFDictionary)
+    } else {
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+    }
+    #expect(CGImageDestinationFinalize(destination))
+}
+
+/// Ensures JPEG, PNG, and HEIF decode from synthetic fixtures without changing source bytes.
+@Test(arguments: ["jpg", "jpeg", "png", "heic", "heif"])
+func supportedFormatsRemainReadOnly(_ suffix: String) throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("sample.\(suffix)")
+        let type: UTType = suffix == "png" ? .png : ["jpg", "jpeg"].contains(suffix) ? .jpeg : .heic
+        try fixture(at: url, type: type)
+        let before = try Data(contentsOf: url)
+        let image = try ImageLoader.decode(at: url)
+        #expect(image.width == 12)
+        #expect(image.height == 8)
+        let details = try ImageLoader.details(at: url)
+        #expect(details.width == 12)
+        #expect(details.height == 8)
+        #expect(
+            details.groups.map(\.name) == [
+                "File", "Timestamps", "Exposure", "Camera and lens", "Attribution and comments", "Location",
+            ])
+        #expect(try Data(contentsOf: url) == before)
+    }
+}
+
+/// Ensures EXIF orientation changes decoded geometry while print resolution does not change pixel size.
+@Test
+func orientationAndPrintResolution() throws {
+    try withFolder { folder in
+        for dpi in [72, 300] {
+            let url = folder.appendingPathComponent("image-\(dpi).jpg")
+            try fixture(at: url, type: .jpeg, orientation: 6, dpi: dpi)
+            let image = try ImageLoader.decode(at: url)
+            #expect(image.width == 8)
+            #expect(image.height == 12)
+            let details = try ImageLoader.details(at: url)
+            #expect(details.width == image.width)
+            #expect(details.height == image.height)
+        }
+    }
+}
+
+/// Ensures PNG decoding retains alpha and a color space for color-managed rendering.
+@Test
+func transparencyAndColorSpace() throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("alpha.png")
+        try fixture(at: url)
+        let image = try ImageLoader.decode(at: url)
+        #expect(image.colorSpace != nil)
+        #expect([CGImageAlphaInfo.premultipliedLast, .premultipliedFirst, .last, .first].contains(image.alphaInfo))
+    }
+}
+
+/// Ensures embedded XMP ratings are read and sidecars never change ratings or enter navigation.
+@Test
+func embeddedRatingAndSidecarExclusion() throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("rated.jpg")
+        try fixture(at: url, type: .jpeg, rating: 4)
+        try Data("<xmp:Rating>1</xmp:Rating>".utf8).write(to: folder.appendingPathComponent("rated.xmp"))
+        #expect(try ImageLoader.details(at: url).entry.rating == 4)
+        let entries = try ImageLoader.discover(in: folder)
+        #expect(entries.count == 1)
+        #expect(entries.first?.rating == 4)
+    }
+}
+
+/// Ensures folder discovery skips RAW, subdirectories, and symbolic links but retains corrupt supported images.
+@Test
+func folderDiscoveryAndRecoverableErrors() throws {
+    try withFolder { folder in
+        try fixture(at: folder.appendingPathComponent("valid.png"))
+        for name in ["raw.dng", "corrupt.jpg", "notes.txt"] {
+            try Data().write(to: folder.appendingPathComponent(name))
+        }
+        try FileManager.default.createDirectory(
+            at: folder.appendingPathComponent("nested.png"), withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(
+            at: folder.appendingPathComponent("link.png"),
+            withDestinationURL: folder.appendingPathComponent("valid.png"))
+        let entries = try ImageLoader.discover(in: folder)
+        #expect(Set(entries.map { $0.url.lastPathComponent }) == ["valid.png", "corrupt.jpg"])
+        #expect(throws: ImageLoadError.self) {
+            try ImageLoader.decode(at: folder.appendingPathComponent("corrupt.jpg"))
+        }
+        #expect(throws: ImageLoadError.self) {
+            try ImageLoader.decode(at: folder.appendingPathComponent("missing.jpg"))
+        }
+        do {
+            _ = try ImageLoader.decode(at: folder.appendingPathComponent("raw.dng"))
+            Issue.record("RAW must be rejected before decoding")
+        } catch { #expect(error.localizedDescription == "RAW images are not supported.") }
+    }
+}
+
+/// Ensures capture timestamps respect embedded offsets and missing/invalid fields remain optional.
+@Test
+func captureTimestamp() {
+    #expect(
+        ImageLoader.captureDate("2026:01:02 03:04:05", offset: "+02:00")
+            == ImageLoader.captureDate("2026:01:02 01:04:05", offset: nil))
+    #expect(ImageLoader.captureDate(nil, offset: nil) == nil)
+    #expect(ImageLoader.captureDate("not a date", offset: nil) == nil)
+}

@@ -1,28 +1,39 @@
 # Development setup
 
-Lulo currently contains only a repository foundation. There is no application to run, Swift package to test, or Xcode project to build yet.
+Run commands from the repository root. Lulo targets macOS 14+. The pinned application toolchain is **Xcode 16.4 (16F6), Apple Swift 6.1.2**, matching `.github/workflows/macos.yml`. AppKit, Image I/O, and interactive verification require macOS.
+
+## Build and test
+
+Install Xcode 16.4, open it once to complete setup, then select the same toolchain as CI:
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
+xcodebuild -version
+swift --version
+swift format lint --strict --recursive Package.swift Sources Tests App
+swift test
+xcodebuild -project Lulo.xcodeproj -scheme Lulo -configuration Debug -destination 'platform=macOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build analyze
+```
+
+The shared Lulo scheme builds `build/Build/Products/Debug/Lulo.app`. The unsigned build validates compilation and static analysis; it does not validate sandbox enforcement. For interactive testing, open `Lulo.xcodeproj`, select the Lulo scheme, select a local signing identity/team in Xcode without committing those settings, and run with `App/Lulo.entitlements`. The entitlements enable App Sandbox and user-selected read-only file access. Follow [the macOS verification checklist](docs/MACOS-VERIFICATION.md).
+
+The Swift package contains `LuloCore` for preferences, ordering, selection, and zoom, and `LuloImaging` for Image I/O and file access. Tests generate small synthetic images in temporary directories, including HEIF through macOS Image I/O. There are no external package dependencies. Linux cannot run the Image I/O tests or build the application.
+
+Format changed Swift files with the pinned toolchain:
+
+```sh
+swift format format --in-place --recursive Package.swift Sources Tests App
+```
 
 ## Documentation checks
 
-Use Node.js 24, matching `.github/workflows/lint.yml`. Run commands from the repository root. The pinned Prettier command needs npm registry access unless it is already cached.
+Use Node.js 24, matching `.github/workflows/lint.yml`. The pinned Prettier command needs npm registry access unless cached.
 
 ```sh
 npx --yes prettier@3.8.3 --check '**/*.md' '.github/**/*.yml' .prettierrc
 git diff --check
 ```
 
-Format changed documentation and configuration files with the same pinned version, specifying their paths:
+Format only changed documentation/configuration paths with `npx --yes prettier@3.8.3 --write <paths>`.
 
-```sh
-npx --yes prettier@3.8.3 --write README.md QUICKSTART.md AGENTS.md docs/CONVENTIONS.md .github/workflows/lint.yml .prettierrc
-```
-
-The lint workflow runs on pushes to every branch and has read-only repository permissions. It checks Markdown, workflow YAML, and the Prettier configuration. Local task records under `tasks/` are ignored by Git and Prettier.
-
-## Application tooling
-
-The minimum macOS version, Xcode/Swift toolchain, source layout, and build commands will be chosen with the implementation. Add the corresponding CI jobs when their source files and manifests exist, and update this guide with the exact commands.
-
-The repository includes `.swift-format` for future Swift code. It uses four-space indentation and a 120-character line length. AppKit and SwiftUI builds and interactive verification require macOS; Linux checks cannot establish that the macOS app works.
-
-Keep signing credentials and generated build/distribution artifacts out of Git. Dependency lockfiles remain trackable.
+Both workflows run on pushes to every branch with read-only repository permissions. Local task records under `tasks/` are ignored by Git and Prettier. Signing credentials and generated build/distribution artifacts must stay out of Git. Dependency lockfiles remain trackable if dependencies are added later.
