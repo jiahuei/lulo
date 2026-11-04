@@ -1,0 +1,9 @@
+.git/
+.build/
+.swiftpm/
+DerivedData/
+build/
+node_modules/
+*.xcassets/
+*.xcodeproj/
+tasks/
