@@ -158,7 +158,7 @@ func oversizedImageIsRecoverable() throws {
                 bytes[$0] == 0xff && [UInt8(0xc0), UInt8(0xc2)].contains(bytes[$0 + 1])
             })
         // Change only the synthetic JPEG's SOF dimensions; no large pixel allocation is needed.
-        for index in (marker + 5)...(marker + 8) { bytes[index] = 0xff }
+        bytes.replaceSubrange((marker + 5)...(marker + 8), with: [0x23, 0x28, 0x23, 0x28])
         try Data(bytes).write(to: url)
         do {
             _ = try ImageLoader.decode(at: url)
