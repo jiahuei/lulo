@@ -145,3 +145,27 @@ func captureTimestamp() {
     #expect(ImageLoader.captureDate(nil, offset: nil) == nil)
     #expect(ImageLoader.captureDate("not a date", offset: nil) == nil)
 }
+
+/// Ensures oversized images fail from their header before allocating a full decoded buffer.
+@Test
+func oversizedImageIsRecoverable() throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("oversized.jpg")
+        try fixture(at: url, type: .jpeg)
+        var bytes = Array(try Data(contentsOf: url))
+        let marker = try #require(
+            (0..<(bytes.count - 8)).first {
+                bytes[$0] == 0xff && [UInt8(0xc0), UInt8(0xc2)].contains(bytes[$0 + 1])
+            })
+        // Change only the synthetic JPEG's SOF dimensions; no large pixel allocation is needed.
+        for index in (marker + 5)...(marker + 8) { bytes[index] = 0xff }
+        try Data(bytes).write(to: url)
+        do {
+            _ = try ImageLoader.decode(at: url)
+            Issue.record("Oversized image must be rejected before decoding")
+        } catch { #expect(error.localizedDescription == "This image exceeds the 64 megapixel decoding limit.") }
+        let next = folder.appendingPathComponent("next.png")
+        try fixture(at: next)
+        #expect(try ImageLoader.decode(at: next).width == 12)
+    }
+}

@@ -217,7 +217,9 @@ final class ViewerController: NSWindowController {
                     guard let self, self.session.generation == generation else { return }
                     switch result {
                     case .success(var entries):
-                        if let opened = self.session.entries.first, !entries.contains(where: { $0.url == opened.url }) {
+                        if let opened = self.session.entries.first(where: { $0.url == self.openedURL }),
+                            !entries.contains(where: { $0.url == opened.url })
+                        {
                             entries.append(opened)
                         }
                         let selected = self.session.selectedURL
