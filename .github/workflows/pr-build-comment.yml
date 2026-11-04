@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: pr-build-comments
+  group: pr-build-comment-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 jobs:

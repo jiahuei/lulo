@@ -21,7 +21,7 @@ trap 'rm -rf "$extracted"' EXIT
 ditto -x -k "$archive" "$extracted"
 app="$extracted/Lulo.app"
 test -x "$app/Contents/MacOS/Lulo"
-lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Lulo"
+lipo "$app/Contents/MacOS/Lulo" -verify_arch arm64 x86_64
 codesign --verify --deep --strict --verbose=2 "$app"
 codesign --display --entitlements - --xml "$app" > "$extracted/entitlements.plist"
 python3 - "$extracted/entitlements.plist" "$app/Contents/MacOS/Lulo" <<'PY'
