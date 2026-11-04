@@ -51,6 +51,28 @@ enum RenderPreviews {
             settle()
             if let popover = app.windows.first(where: { $0 !== window && $0.isVisible && $0.contentView != nil }) {
                 try capture(popover, to: output.appendingPathComponent("browse-dark.png"))
+                guard
+                    let rating = descendants(popover.contentView!).compactMap({ $0 as? NSPopUpButton })
+                        .first(where: { $0.toolTip == "Filter by exact star rating" })
+                else {
+                    throw PreviewError.missingFilterControls
+                }
+                rating.selectItem(at: 6)
+                rating.sendAction(rating.action, to: rating.target)
+                browse.performClick(nil)
+                settle()
+                guard let canvas = descendants(window.contentView!).compactMap({ $0 as? ImageCanvas }).first,
+                    canvas.image == nil,
+                    let clear = descendants(canvas).compactMap({ $0 as? NSButton })
+                        .first(where: { $0.title == "Clear Filters" && !$0.isHidden })
+                else {
+                    throw PreviewError.filterDidNotApply
+                }
+                try capture(window, to: output.appendingPathComponent("filtered-empty-dark.png"))
+                clear.performClick(nil)
+                let restoredDeadline = Date().addingTimeInterval(15)
+                while canvas.image == nil && Date() < restoredDeadline { settle() }
+                guard canvas.image != nil else { throw PreviewError.filterDidNotClear }
             } else {
                 throw PreviewError.missingPopover
             }
@@ -117,5 +139,6 @@ enum RenderPreviews {
 
     private enum PreviewError: Error {
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
+        case missingFilterControls, filterDidNotApply, filterDidNotClear
     }
 }

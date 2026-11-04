@@ -180,6 +180,7 @@ final class ViewerController: NSWindowController {
         grid.rowSpacing = 12
         grid.columnSpacing = 16
         grid.column(at: 0).xPlacement = .trailing
+        grid.column(at: 0).width = 68
         grid.column(at: 1).xPlacement = .fill
         let note = NSTextField(wrappingLabelWithString: "Rating and file type filters apply together.")
         note.font = .systemFont(ofSize: 11)
@@ -188,12 +189,21 @@ final class ViewerController: NSWindowController {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 16
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 300))
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            grid.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            note.widthAnchor.constraint(equalTo: stack.widthAnchor),
+        ])
         let controller = NSViewController()
-        controller.view = stack
+        controller.view = container
         browsePopover.contentViewController = controller
         browsePopover.behavior = .transient
-        browsePopover.contentSize = NSSize(width: 340, height: 260)
+        browsePopover.contentSize = NSSize(width: 340, height: 300)
     }
 
     @objc private func showBrowse() {

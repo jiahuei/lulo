@@ -33,7 +33,7 @@ After the unsigned Debug build, capture the actual AppKit viewer in light/dark a
 bash tools/render-previews.sh
 ```
 
-The command compiles the current view/controller with a small preview entry point, reusing the build's package objects. It generates a synthetic image, declines the folder permission sheet, captures native view hierarchies under `build/previews/`, and checks that the image area remains usable with the inspector open. CI uploads these PNGs as the `native-previews` artifact for seven days. `bash tools/render-previews.sh <output-directory> <app-source-directory>` can render another revision's view/controller for comparison.
+The command compiles the current view/controller with a small preview entry point, reusing the build's package objects. It generates a synthetic image, declines the folder permission sheet, captures native view hierarchies under `build/previews/`, checks that the image area remains usable with the inspector open, and exercises rating-filter exclusion and the real Clear Filters button. CI uploads these PNGs as the `native-previews` artifact for seven days. `bash tools/render-previews.sh <output-directory> <app-source-directory>` can render another revision's view/controller for comparison.
 
 This unsandboxed development helper is not bundled with Lulo. View captures establish layout evidence; they do not establish Finder integration, sandbox enforcement, mouse/trackpad behavior, display color fidelity, or VoiceOver behavior. The interactive checklist remains required.
 
