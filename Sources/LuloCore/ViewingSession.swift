@@ -78,8 +78,16 @@ public struct ImageFilter: Equatable, Sendable {
 }
 
 public struct ViewingSession: Sendable {
-    public var preferences: Preferences
-    public var filter = ImageFilter()
+    public var preferences: Preferences {
+        didSet {
+            if preferences.sort != oldValue.sort || preferences.ascending != oldValue.ascending {
+                rebuildVisibleEntries()
+            }
+        }
+    }
+    public var filter = ImageFilter() {
+        didSet { if filter != oldValue { rebuildVisibleEntries() } }
+    }
     public var sidebarVisible = false
     public private(set) var entries: [ImageEntry] = []
     public private(set) var selectedURL: URL?
@@ -89,8 +97,11 @@ public struct ViewingSession: Sendable {
         self.preferences = preferences
     }
 
-    public var visibleEntries: [ImageEntry] {
-        entries.filter {
+    // Navigation and status reads share the same order; only its inputs trigger sorting.
+    public private(set) var visibleEntries: [ImageEntry] = []
+
+    private mutating func rebuildVisibleEntries() {
+        visibleEntries = entries.filter {
             (filter.rating == nil || ($0.rating ?? 0) == filter.rating)
                 && (filter.format == nil || $0.format == filter.format)
         }.sorted { left, right in
@@ -122,11 +133,20 @@ public struct ViewingSession: Sendable {
         entries = entry.map { [$0] } ?? []
         selectedURL = entry?.url
         filter = ImageFilter()
+        visibleEntries = entries
         sidebarVisible = false
     }
 
     public mutating func replaceEntries(_ entries: [ImageEntry]) {
         self.entries = entries
+        rebuildVisibleEntries()
+        reconcileSelection()
+    }
+
+    public mutating func updateEntry(_ entry: ImageEntry) {
+        guard let index = entries.firstIndex(where: { $0.url == entry.url }), entries[index] != entry else { return }
+        entries[index] = entry
+        rebuildVisibleEntries()
         reconcileSelection()
     }
 

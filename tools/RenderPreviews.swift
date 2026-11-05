@@ -1,6 +1,7 @@
 import AppKit
 import ImageIO
 import LuloCore
+import LuloImaging
 import UniformTypeIdentifiers
 
 /// Renders the actual viewer with synthetic data and checks that controls and metadata fit its window.
@@ -45,7 +46,10 @@ enum RenderPreviews {
         window.setContentSize(NSSize(width: 720, height: 480))
         settle()
         try capture(window, to: output.appendingPathComponent("metadata-compact-dark.png"))
-        if let browse = window.toolbar?.items.compactMap({ $0.view as? NSButton }).first(where: { $0.title == "Browse" }
+        try verifyLoadingOverlay(window, output: output)
+        if let browse = window.toolbar?.items.compactMap({ $0.view as? NSButton }).first(where: {
+            $0.title == "Sort & Filter"
+        }
         ) {
             browse.performClick(nil)
             settle()
@@ -77,8 +81,205 @@ enum RenderPreviews {
                 throw PreviewError.missingPopover
             }
         }
-        print("Rendered native viewer previews with a synthetic image.")
+        try verifyArrowNavigation(viewer)
+        try verifyObsoleteFolderScan(fixture: fixture)
+        print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures the loading card stays compact and legible over retained pixels in both appearances.
+    private static func verifyLoadingOverlay(_ window: NSWindow, output: URL) throws {
+        guard let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let image = canvas.image
+        else { throw PreviewError.imageDidNotLoad }
+        let filename = "A very long incoming photo filename with shooting details and a sequence number 123456789.jpg"
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            canvas.showLoading(filename: filename)
+            settle()
+            root.layoutSubtreeIfNeeded()
+            guard canvas.image === image, canvas.isLoading,
+                let box = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first,
+                !box.isHidden, box.frame.width <= 360, box.frame.height <= 80,
+                canvas.bounds.contains(box.frame),
+                descendants(box).compactMap({ $0 as? NSTextField }).contains(where: { $0.stringValue == filename }),
+                descendants(box).contains(where: { $0 is NSProgressIndicator && !$0.isHidden })
+            else { throw PreviewError.loadingOverlayFailed }
+            try capture(window, to: output.appendingPathComponent("loading-\(appearance.rawValue).png"))
+        }
+        canvas.image = image
+        guard !canvas.isLoading else { throw PreviewError.loadingOverlayFailed }
+    }
+
+    /// Ensures real arrow events keep image/metadata selection consistent through reversals and rapid repeats.
+    private static func verifyArrowNavigation(_ viewer: ViewerController) throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let photo = URL(fileURLWithPath: "Tests/LuloImagingTests/Fixtures/DSCF2143-LR-light.jpg")
+        let urls = ["a.jpg", "b.jpg", "c.jpg"].map { folder.appendingPathComponent($0) }
+        for url in urls { try FileManager.default.copyItem(at: photo, to: url) }
+        guard let window = viewer.window, let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let metadata = descendants(root).compactMap({ $0 as? NSTextView }).first
+        else { throw PreviewError.missingWindow }
+        func waitUntil(_ stage: String, _ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            }
+            guard ready() else {
+                let diagnostic =
+                    "Navigation timeout: \(stage), title=\(window.title), image=\(canvas.image?.width ?? 0)x\(canvas.image?.height ?? 0), metadataCharacters=\(metadata.string.count), labels=\(descendants(root).compactMap { ($0 as? NSTextField)?.stringValue })\n"
+                FileHandle.standardError.write(Data(diagnostic.utf8))
+                throw PreviewError.navigationFailed
+            }
+        }
+        viewer.open(urls[0])
+        try waitUntil("initial photo") { canvas.image != nil && metadata.string.contains("a.jpg") }
+        // Only this temporary, harness-owned folder is granted; the real sandbox sheet is tested manually.
+        guard folder.standardizedFileURL == urls[0].deletingLastPathComponent().standardizedFileURL else {
+            FileHandle.standardError.write(Data("Navigation test grant does not match the opened parent.\n".utf8))
+            throw PreviewError.navigationFailed
+        }
+        let discovered = try ImageLoader.discover(in: folder)
+        guard discovered.count == 3, discovered.contains(where: { $0.url == urls[0] }) else {
+            throw PreviewError.navigationFailed
+        }
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        try waitUntil("folder discovery") {
+            descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "1 of 3" }
+        }
+        func arrow(_ direction: Int) throws {
+            guard
+                let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "",
+                    isARepeat: false, keyCode: direction > 0 ? 124 : 123)
+            else { throw PreviewError.navigationFailed }
+            let retainedImage = canvas.image
+            let retainedScale = canvas.zoom.scale
+            canvas.keyDown(with: event)
+            // The main actor has not yielded, so completion cannot race these loading-state assertions.
+            guard canvas.image === retainedImage, canvas.zoom.scale == retainedScale, canvas.isLoading,
+                metadata.string.isEmpty,
+                descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
+                    $0.stringValue == window.title && !$0.isHiddenOrHasHiddenAncestor
+                })
+            else { throw PreviewError.loadingOverlayFailed }
+        }
+        var index = 0
+        for direction in [1, 1, -1, -1] {
+            canvas.zoom.scroll(up: true, currentScale: 1)
+            try arrow(direction)
+            index = (index + direction + urls.count) % urls.count
+            try waitUntil("arrow to \(urls[index].lastPathComponent)") {
+                canvas.image != nil && !canvas.isLoading && metadata.string.contains(urls[index].lastPathComponent)
+            }
+            guard canvas.image?.width == 4085, canvas.image?.height == 6128, canvas.zoom.scale == nil else {
+                throw PreviewError.navigationFailed
+            }
+        }
+        // Queue rapid selections without waiting for intermediate decodes, including a direction reversal.
+        for direction in [1, 1, 1, -1, 1, -1, -1] {
+            try arrow(direction)
+            index = (index + direction + urls.count) % urls.count
+        }
+        try waitUntil("arrow to \(urls[index].lastPathComponent)") {
+            canvas.image != nil && !canvas.isLoading && metadata.string.contains(urls[index].lastPathComponent)
+        }
+        guard window.title == urls[index].lastPathComponent else { throw PreviewError.navigationFailed }
+        viewer.open(urls[0])
+        viewer.open(urls[2])
+        try waitUntil("superseded open") { canvas.image != nil && metadata.string.contains("c.jpg") }
+        guard window.title == "c.jpg" else { throw PreviewError.navigationFailed }
+        try waitUntil("rediscovery after explicit opens") {
+            descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "3 of 3" }
+        }
+        // Invalidating a cached neighbor must clear the retained pixels on failure and allow another arrow.
+        try Data("corrupt image".utf8).write(to: urls[1])
+        try arrow(-1)
+        try waitUntil("recoverable error") { !canvas.isLoading && canvas.image == nil }
+        guard
+            descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
+                $0.stringValue == "Cannot display this image" && !$0.isHiddenOrHasHiddenAncestor
+            })
+        else { throw PreviewError.loadingOverlayFailed }
+        try arrow(-1)
+        try waitUntil("navigation after error") {
+            !canvas.isLoading && canvas.image != nil && metadata.string.contains("a.jpg")
+        }
+        print("Verified arrow wrapping/reversal, rapid selections, and superseded explicit opens with the real photo.")
+    }
+
+    /// Ensures a new explicit open cancels an active scan, retains its grant until exit, and rejects its results.
+    private static func verifyObsoleteFolderScan(fixture: URL) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let oldFolder = root.appendingPathComponent("old", isDirectory: true)
+        let newFolder = root.appendingPathComponent("new", isDirectory: true)
+        for folder in [oldFolder, newFolder] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        for index in 0..<8 {
+            try FileManager.default.copyItem(at: fixture, to: oldFolder.appendingPathComponent("image\(index).png"))
+        }
+        let newImage = newFolder.appendingPathComponent("new.png")
+        try FileManager.default.copyItem(at: fixture, to: newImage)
+        let gate = ScanCheckpointGate()
+        let viewer = ViewerController { folder, isCancelled in
+            defer { gate.finish() }
+            return try ImageLoader.discover(
+                in: folder,
+                isCancelled: {
+                    gate.checkpoint()
+                    return isCancelled()
+                })
+        }
+        defer {
+            gate.release()
+            viewer.window?.close()
+        }
+        guard let window = viewer.window, let content = window.contentView,
+            let canvas = descendants(content).compactMap({ $0 as? ImageCanvas }).first
+        else { throw PreviewError.missingWindow }
+        func waitUntil(_ stage: String, _ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            }
+            guard ready() else {
+                FileHandle.standardError.write(Data("Scan cancellation timeout: \(stage), state=\(gate.state)\n".utf8))
+                throw PreviewError.navigationFailed
+            }
+        }
+        viewer.open(oldFolder.appendingPathComponent("image0.png"))
+        try waitUntil("initial image") { canvas.image != nil && !canvas.isLoading }
+        weak var retainedGrant: FileAccess?
+        // AppKit drains autoreleased Objective-C blocks/operation arrays after each real event.
+        // Match that lifetime here instead of retaining them in the command-line harness's outer pool.
+        autoreleasepool {
+            let grant = FileAccess(url: oldFolder)
+            retainedGrant = grant
+            viewer.useAuthorizedFolder(grant)
+        }
+        // The third checkpoint follows the first metadata read. No sleeps or disk-speed assumptions.
+        try waitUntil("scan checkpoint") { gate.state.paused }
+        autoreleasepool { viewer.open(newImage) }
+        try waitUntil("new image while scan is blocked") {
+            canvas.image != nil && !canvas.isLoading && window.title == "new.png"
+        }
+        guard retainedGrant != nil else { throw PreviewError.navigationFailed }
+        gate.release()
+        try waitUntil("scan exit and grant release") { gate.state.finished && retainedGrant == nil }
+        guard gate.state.checks == 3, !gate.state.timedOut, window.title == "new.png",
+            descendants(content).compactMap({ $0 as? NSTextField }).contains(where: { $0.stringValue == "1 of 1" })
+        else { throw PreviewError.navigationFailed }
+        print(
+            "Verified an active scan stops after one metadata read, preserves the new session, and releases its grant.")
     }
 
     private static func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
@@ -139,6 +340,50 @@ enum RenderPreviews {
 
     private enum PreviewError: Error {
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
-        case missingFilterControls, filterDidNotApply, filterDidNotClear
+        case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed, loadingOverlayFailed
+    }
+}
+
+// NSCondition protects every state access shared by the UI harness and the discovery worker.
+private final class ScanCheckpointGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var checks = 0
+    private var paused = false
+    private var released = false
+    private var finished = false
+    private var timedOut = false
+
+    var state: (checks: Int, paused: Bool, finished: Bool, timedOut: Bool) {
+        condition.lock()
+        defer { condition.unlock() }
+        return (checks, paused, finished, timedOut)
+    }
+
+    func checkpoint() {
+        condition.lock()
+        defer { condition.unlock() }
+        checks += 1
+        guard checks == 3 else { return }
+        paused = true
+        let deadline = Date().addingTimeInterval(15)
+        while !released {
+            if !condition.wait(until: deadline) {
+                timedOut = true
+                break
+            }
+        }
+    }
+
+    func release() {
+        condition.lock()
+        defer { condition.unlock() }
+        released = true
+        condition.broadcast()
+    }
+
+    func finish() {
+        condition.lock()
+        defer { condition.unlock() }
+        finished = true
     }
 }

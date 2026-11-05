@@ -3,12 +3,6 @@ import LuloCore
 import LuloImaging
 import UniformTypeIdentifiers
 
-// CGImage is immutable. Only the main actor installs it in the view.
-private struct LoadedImage: @unchecked Sendable {
-    let image: CGImage
-    let details: ImageDetails
-}
-
 @MainActor
 final class ViewerController: NSWindowController {
     private var session = ViewingSession(preferences: Preferences(defaults: .standard))
@@ -27,15 +21,21 @@ final class ViewerController: NSWindowController {
     private let browsePopover = NSPopover()
     private let filterSummary = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
+    typealias DiscoverImages = @Sendable (URL, @Sendable () -> Bool) throws -> [ImageEntry]
+    private let discoverImages: DiscoverImages
     private let worker = OperationQueue()
     private var fileAccess: FileAccess?
     private var folderAccess: FileAccess?
     private var folderPanel: NSOpenPanel?
-    private var loadOperation: Operation?
+    private let imageStore = ImageStore()
+    private var loadTask: Task<Void, Never>?
+    private var prefetchTask: Task<Void, Never>?
+    private var navigationDirection = 1
     private var request = 0
     private var openedURL: URL?
 
-    init() {
+    init(discoverImages: @escaping DiscoverImages = { try ImageLoader.discover(in: $0, isCancelled: $1) }) {
+        self.discoverImages = discoverImages
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -85,8 +85,9 @@ final class ViewerController: NSWindowController {
         configureButton(next, title: "Next image", symbol: "chevron.right", action: #selector(nextImage))
         configureButton(info, title: "Show metadata", symbol: "sidebar.right", action: #selector(toggleSidebar))
         info.setButtonType(.toggle)
-        configureButton(browse, title: "Browse", symbol: "line.3.horizontal.decrease", action: #selector(showBrowse))
-        browse.title = "Browse"
+        configureButton(
+            browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease", action: #selector(showBrowse))
+        browse.title = "Sort & Filter"
         browse.imagePosition = .imageLeading
         makeBrowsePopover()
         let toolbar = NSToolbar(identifier: "Viewer")
@@ -168,7 +169,7 @@ final class ViewerController: NSWindowController {
     }
 
     private func makeBrowsePopover() {
-        let heading = NSTextField(labelWithString: "Browse images")
+        let heading = NSTextField(labelWithString: "Sort & Filter")
         heading.font = .systemFont(ofSize: 15, weight: .semibold)
         let reset = NSButton(title: "Clear Filters", target: self, action: #selector(clearFilters))
         let grid = NSGridView(views: [
@@ -273,6 +274,9 @@ final class ViewerController: NSWindowController {
         folderPanel?.cancel(nil)
         folderPanel = nil
         worker.cancelAllOperations()
+        loadTask?.cancel()
+        prefetchTask?.cancel()
+        navigationDirection = 1
         request += 1
         openedURL = url
         fileAccess = FileAccess(url: url)
@@ -284,7 +288,6 @@ final class ViewerController: NSWindowController {
         info.setAccessibilityLabel("Show metadata")
         sidebar.isHidden = true
         canvas.displayDefault = session.preferences.display
-        canvas.resetZoom()
         metadata.string = ""
         status.stringValue = ""
         do { _ = try ImageLoader.validateFormat(url) } catch {
@@ -326,13 +329,20 @@ final class ViewerController: NSWindowController {
             guard let self else { return }
             if self.folderPanel === panel { self.folderPanel = nil }
             guard self.session.generation == generation, response == .OK, let url = panel.url else { return }
-            guard url.standardizedFileURL == parent else {
-                self.status.stringValue = "Choose the containing folder to enable navigation."
-                return
-            }
-            self.folderAccess = FileAccess(url: url)
-            self.discoverFolder()
+            self.useAuthorizedFolder(FileAccess(url: url))
         }
+    }
+
+    // The caller supplies the user's grant (or an owned test directory in the unsandboxed harness).
+    func useAuthorizedFolder(_ access: FileAccess) {
+        guard let openedURL,
+            access.url.standardizedFileURL == openedURL.deletingLastPathComponent().standardizedFileURL
+        else {
+            status.stringValue = "Choose the containing folder to enable navigation."
+            return
+        }
+        folderAccess = access
+        discoverFolder()
     }
 
     @objc func allowFolderNavigation() {
@@ -343,11 +353,15 @@ final class ViewerController: NSWindowController {
     private func discoverFolder() {
         guard let access = folderAccess else { return }
         let generation = session.generation
-        worker.addOperation { [weak self] in
-            let result = Result { try ImageLoader.discover(in: access.url) }
-            _ = withExtendedLifetime(access) {
-                Task { @MainActor [weak self] in
-                    guard let self, self.session.generation == generation else { return }
+        let discover = discoverImages
+        let operation = BlockOperation()
+        operation.addExecutionBlock { [weak self, weak operation] in
+            guard let operation else { return }
+            let result = Result { try discover(access.url, { operation.isCancelled }) }
+            withExtendedLifetime(access) {
+                guard !operation.isCancelled else { return }
+                _ = Task { @MainActor [weak self] in
+                    guard let self, self.session.generation == generation, !operation.isCancelled else { return }
                     switch result {
                     case .success(var entries):
                         if let opened = self.session.entries.first(where: { $0.url == self.openedURL }),
@@ -359,61 +373,79 @@ final class ViewerController: NSWindowController {
                         self.session.replaceEntries(entries)
                         if self.session.selectedURL != selected { self.loadSelection() }
                         self.updateStatus()
+                        self.prefetchNeighbor()
                     case .failure:
                         self.status.stringValue = "Folder could not be read. The opened image is still available."
                     }
                 }
             }
         }
+        worker.addOperation(operation)
     }
 
     private func loadSelection() {
-        loadOperation?.cancel()
+        loadTask?.cancel()
+        prefetchTask?.cancel()
         request += 1
         let currentRequest = request
-        canvas.image = nil
         metadata.string = ""
-        canvas.resetZoom()
         guard let url = session.selectedURL else {
+            canvas.image = nil
             canvas.showMessage(
                 "No matching images", detail: "No images match the current filters.",
                 actionTitle: "Clear Filters", action: { [weak self] in self?.clearFilters() })
             updateStatus()
             return
         }
-        canvas.showMessage("Loading image…", detail: url.lastPathComponent, loading: true)
+        canvas.showLoading(filename: url.lastPathComponent)
         window?.title = url.lastPathComponent
         let access = url == openedURL ? fileAccess : folderAccess
-        let operation = BlockOperation { [weak self] in
-            let result = Result {
-                try LoadedImage(image: ImageLoader.decode(at: url), details: ImageLoader.details(at: url))
-            }
-            _ = withExtendedLifetime(access) {
-                Task { @MainActor [weak self] in
-                    guard let self, self.request == currentRequest else { return }
-                    switch result {
-                    case .success(let loaded):
-                        let entries = self.session.entries.map { $0.url == url ? loaded.details.entry : $0 }
-                        self.session.replaceEntries(entries)
-                        guard self.session.selectedURL == url else {
-                            self.loadSelection()
-                            return
-                        }
-                        self.canvas.image = loaded.image
-                        self.canvas.setAccessibilityLabel(url.lastPathComponent)
-                        self.showMetadata(loaded.details)
-                    case .failure(let error):
-                        self.canvas.showMessage(
-                            "Cannot display this image", detail: error.localizedDescription,
-                            actionTitle: "Open Another Image…", action: { [weak self] in self?.openPanel() })
-                    }
-                    self.updateStatus()
+        let generation = session.generation
+        let store = imageStore
+        loadTask = Task { [weak self] in
+            do {
+                let loaded = try await store.load(at: url, generation: generation, access: access)
+                guard !Task.isCancelled, let self, self.request == currentRequest else { return }
+                self.session.updateEntry(loaded.details.entry)
+                guard self.session.selectedURL == url else {
+                    self.loadSelection()
+                    return
                 }
+                self.canvas.image = loaded.image
+                self.canvas.resetZoom()
+                self.canvas.setAccessibilityLabel(url.lastPathComponent)
+                self.showMetadata(loaded.details)
+                self.updateStatus()
+                self.prefetchNeighbor()
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, let self, self.request == currentRequest else { return }
+                self.canvas.image = nil
+                self.canvas.showMessage(
+                    "Cannot display this image", detail: error.localizedDescription,
+                    actionTitle: "Open Another Image…", action: { [weak self] in self?.openPanel() })
+                self.updateStatus()
             }
         }
-        loadOperation = operation
-        worker.addOperation(operation)
         updateStatus()
+    }
+
+    private func prefetchNeighbor() {
+        prefetchTask?.cancel()
+        guard canvas.image != nil, !canvas.isLoading, session.visibleEntries.count > 1 else { return }
+        var neighbor = session
+        neighbor.navigate(navigationDirection)
+        guard let url = neighbor.selectedURL, url != session.selectedURL else { return }
+        let access = url == openedURL ? fileAccess : folderAccess
+        guard let access else { return }
+        let generation = session.generation
+        let store = imageStore
+        // One likely next image shares the serial decoder; cancelled queued work is skipped.
+        // A prefetch failure is presented only if the user actually selects that file.
+        prefetchTask = Task(priority: .utility) {
+            _ = try? await store.load(at: url, generation: generation, access: access)
+        }
     }
 
     private func updateStatus() {
@@ -430,13 +462,14 @@ final class ViewerController: NSWindowController {
         if let format = session.filter.format { filters.append(format.rawValue) }
         filterSummary.stringValue = filters.isEmpty ? "" : "Filtered by " + filters.joined(separator: " · ")
         filterSummary.toolTip = filterSummary.stringValue
-        browse.title = filters.isEmpty ? "Browse" : "Browse (\(filters.count))"
+        browse.title = filters.isEmpty ? "Sort & Filter" : "Sort & Filter (\(filters.count))"
         browse.setAccessibilityLabel(
-            filters.isEmpty ? "Browse images" : "Browse images, \(filters.count) active filters")
+            filters.isEmpty ? "Sort & Filter" : "Sort & Filter, \(filters.count) active filters")
     }
 
     private func navigate(_ delta: Int) {
         guard session.selectedURL != nil else { return }
+        navigationDirection = delta < 0 ? -1 : 1
         session.navigate(delta)
         loadSelection()
     }
@@ -454,6 +487,7 @@ final class ViewerController: NSWindowController {
         canvas.displayDefault = session.preferences.display
         if oldDisplay != session.preferences.display { canvas.resetZoom() }
         updateStatus()
+        prefetchNeighbor()
     }
 
     @objc private func filtersChanged() {
@@ -464,6 +498,7 @@ final class ViewerController: NSWindowController {
         session.reconcileSelection()
         if session.selectedURL != previous { loadSelection() }
         updateStatus()
+        prefetchNeighbor()
     }
 
     @objc func toggleSidebar() {
@@ -507,7 +542,7 @@ extension ViewerController: NSToolbarDelegate {
             item.label = "Default Zoom"
             item.view = display
         case "Browse":
-            item.label = "Browse"
+            item.label = "Sort & Filter"
             item.view = browse
         case "Metadata":
             item.label = "Metadata"

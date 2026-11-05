@@ -13,7 +13,7 @@ private func withFolder(_ work: (URL) throws -> Void) throws {
     try work(folder)
 }
 
-private func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 72, rating: Int? = nil) throws {
+func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 72, rating: Int? = nil) throws {
     let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
     let context = try #require(
         CGContext(
@@ -123,6 +123,9 @@ func folderDiscoveryAndRecoverableErrors() throws {
             withDestinationURL: folder.appendingPathComponent("valid.png"))
         let entries = try ImageLoader.discover(in: folder)
         #expect(Set(entries.map { $0.url.lastPathComponent }) == ["valid.png", "corrupt.jpg"])
+        #expect(
+            entries.first(where: { $0.url.lastPathComponent == "valid.png" })?.url
+                == folder.appendingPathComponent("valid.png"))
         #expect(throws: ImageLoadError.self) {
             try ImageLoader.decode(at: folder.appendingPathComponent("corrupt.jpg"))
         }

@@ -15,7 +15,7 @@ Lulo is a native macOS 14+ image viewer. The app uses AppKit and a local Swift p
 - `Sources/LuloCore` and `Tests/LuloCoreTests`: portable preferences, ordering, selection, and zoom.
 - `Sources/LuloImaging` and `Tests/LuloImagingTests`: macOS Image I/O, metadata, and file access.
 - Read `docs/CONVENTIONS.md` and `docs/PRODUCT.md` before changing application code.
-- Use synthetic or appropriately licensed image fixtures in committed tests and screenshots; do not commit personal photos or metadata.
+- Use synthetic or appropriately licensed image fixtures in committed tests and screenshots; do not commit personal photos or metadata. The owner explicitly authorized `Tests/LuloImagingTests/Fixtures/DSCF2143-LR-light.jpg` and its embedded metadata for public regression testing on November 5, 2026; see the fixture README.
 
 The user's job as a senior software engineer is dependent on you implementing clean code with elegant architecture.
 

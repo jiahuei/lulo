@@ -56,9 +56,25 @@ After the unsigned Debug build, capture the actual AppKit viewer in light/dark a
 bash tools/render-previews.sh
 ```
 
-The command compiles the current view/controller with a small preview entry point, reusing the build's package objects. It generates a synthetic image, declines the folder permission sheet, captures native view hierarchies under `build/previews/`, checks that the image area remains usable with the inspector open, and exercises rating-filter exclusion and the real Clear Filters button. CI uploads these PNGs as the `native-previews` artifact for seven days. `bash tools/render-previews.sh <output-directory> <app-source-directory>` can render another revision's view/controller for comparison.
+The command compiles the current view/controller with a small preview entry point, reusing the build's package objects. It generates a synthetic image, declines the folder permission sheet, captures native view hierarchies under `build/previews/`, checks that the image area remains usable with the inspector open, and exercises rating-filter exclusion and the real Clear Filters button. It also navigates temporary copies of the approved real-photo fixture through actual canvas arrow events, checking wrapping, reversals, rapid selections, superseded opens, and matching image/metadata state. Loading checks require retained pixels and zoom before completion, the latest filename overlay, overlay dismissal on completion/failure, and recovery through corrupt files. Compact light/dark loading captures include a long filename. A deterministic barrier also holds a scan after its first metadata read while the actual controller opens another session; the check requires the new image to load before releasing the scan, then verifies prompt cancellation, unchanged new-session selection, and release of the old grant. CI uploads these PNGs as the `native-previews` artifact for seven days. `bash tools/render-previews.sh <output-directory> <app-source-directory>` can render another revision's view/controller for comparison.
 
 This unsandboxed development helper is not bundled with Lulo. View captures establish layout evidence; they do not establish Finder integration, sandbox enforcement, mouse/trackpad behavior, display color fidelity, or VoiceOver behavior. The interactive checklist remains required.
+
+## Navigation performance and photo regression
+
+`Tests/LuloImagingTests/Fixtures/DSCF2143-LR-light.jpg` is the owner's explicitly approved public fixture: an 837 KB, 4085 × 6128 JPEG with its shooting and GPS metadata intact. The fixture README records permission. Package tests assert exposure, ISO, focal lengths, camera/lens, capture timezone, GPS coordinates, altitude, original dimensions, and unchanged bytes. Cache tests cover reuse, byte limits/eviction, file changes/deletion, new sessions, cancelled queued requests, and a cancelled prefetch whose completed decode is reused.
+
+After `bash tools/package-app.sh`, run:
+
+```sh
+bash tools/benchmark-navigation.sh
+# Optional before/after comparison, using the same fixture and compiler on this machine:
+bash tools/benchmark-navigation.sh origin/main
+```
+
+The comparison compiles the base revision's actual package sources in a temporary directory. The candidate uses the optimized Release modules built for the app. Both run the same 2,000-entry navigation/status workload starting in the middle of the folder, full-resolution JPEG decoder, and metadata reader. Output includes every sample, median, and maximum in milliseconds; the candidate also measures warm image-store reuse and retained pixel bytes. CI runs the comparison against each PR's base commit. Setup/sorting is excluded from navigation samples; the first decode is reported alongside subsequent reads without flushing the OS filesystem cache. These component measurements do not include display/paint latency and are not a comparison against JPEGView. The benchmark also measures complete metadata discovery of 1,000 temporary links to a copy of the real photo, plus cancellation after the first metadata read (three samples each). Directory listing time is included; fixture/link setup is excluded. No machine-dependent timing threshold gates CI.
+
+For interactive checks, use the PR app with a folder of large photos. Try paced next/previous navigation, rapid repeats/reversals, metadata-visible navigation, sorting/filter changes, external file replacement/deletion, and opening another file during a load. Confirm the final selection, full-resolution zoom, and sandbox behavior on your laptop.
 
 ## Documentation checks
 

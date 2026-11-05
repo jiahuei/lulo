@@ -8,7 +8,7 @@ final class ImageCanvas: NSView {
             offset = .zero
             messageStack.isHidden = image != nil
             setAccessibilityElement(image != nil)
-            if image != nil { progress.stopAnimation(nil) }
+            hideLoading()
             needsDisplay = true
         }
     }
@@ -16,6 +16,8 @@ final class ImageCanvas: NSView {
     private let messageDetail = NSTextField(wrappingLabelWithString: "")
     private let messageButton = NSButton()
     private let progress = NSProgressIndicator()
+    private let loadingBox = NSVisualEffectView()
+    private let loadingFilename = NSTextField(labelWithString: "")
     private let messageStack = NSStackView()
     private var messageAction: (() -> Void)?
     var displayDefault = DisplayDefault.fit
@@ -23,6 +25,7 @@ final class ImageCanvas: NSView {
     var navigate: ((Int) -> Void)?
     private var offset = CGPoint.zero
     private var dragOrigin: CGPoint?
+    var isLoading: Bool { !loadingBox.isHidden }
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -40,10 +43,11 @@ final class ImageCanvas: NSView {
         progress.style = .spinning
         progress.controlSize = .small
         progress.isDisplayedWhenStopped = false
+        progress.setAccessibilityLabel("Loading image")
         messageStack.orientation = .vertical
         messageStack.alignment = .centerX
         messageStack.spacing = 12
-        for view in [progress, messageTitle, messageDetail, messageButton] { messageStack.addArrangedSubview(view) }
+        for view in [messageTitle, messageDetail, messageButton] { messageStack.addArrangedSubview(view) }
         messageStack.setCustomSpacing(20, after: messageDetail)
         messageStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(messageStack)
@@ -54,23 +58,68 @@ final class ImageCanvas: NSView {
             messageStack.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
             messageDetail.widthAnchor.constraint(equalTo: messageStack.widthAnchor),
         ])
+
+        loadingBox.material = .hudWindow
+        loadingBox.blendingMode = .withinWindow
+        loadingBox.state = .active
+        loadingBox.wantsLayer = true
+        loadingBox.layer?.cornerRadius = 12
+        loadingBox.layer?.masksToBounds = true
+        loadingBox.isHidden = true
+        loadingFilename.font = .systemFont(ofSize: 13, weight: .medium)
+        loadingFilename.lineBreakMode = .byTruncatingMiddle
+        loadingFilename.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let loadingRow = NSStackView(views: [progress, loadingFilename])
+        loadingRow.orientation = .horizontal
+        loadingRow.alignment = .centerY
+        loadingRow.spacing = 12
+        loadingBox.translatesAutoresizingMaskIntoConstraints = false
+        loadingRow.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(loadingBox)
+        loadingBox.addSubview(loadingRow)
+        NSLayoutConstraint.activate([
+            loadingBox.centerXAnchor.constraint(equalTo: centerXAnchor),
+            loadingBox.centerYAnchor.constraint(equalTo: centerYAnchor),
+            loadingBox.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+            loadingBox.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
+            loadingRow.leadingAnchor.constraint(equalTo: loadingBox.leadingAnchor, constant: 20),
+            loadingRow.trailingAnchor.constraint(equalTo: loadingBox.trailingAnchor, constant: -20),
+            loadingRow.topAnchor.constraint(equalTo: loadingBox.topAnchor, constant: 16),
+            loadingRow.bottomAnchor.constraint(equalTo: loadingBox.bottomAnchor, constant: -16),
+            progress.widthAnchor.constraint(equalToConstant: 16),
+            progress.heightAnchor.constraint(equalToConstant: 16),
+        ])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func showMessage(
         _ title: String, detail: String, actionTitle: String? = nil,
-        action: (() -> Void)? = nil, loading: Bool = false
+        action: (() -> Void)? = nil
     ) {
+        hideLoading()
         messageTitle.stringValue = title
         messageDetail.stringValue = detail
         messageButton.title = actionTitle ?? ""
         messageButton.isHidden = actionTitle == nil
         messageAction = action
-        progress.isHidden = !loading
-        if loading { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
         messageStack.isHidden = false
         setAccessibilityElement(false)
+    }
+
+    func showLoading(filename: String) {
+        messageStack.isHidden = true
+        loadingFilename.stringValue = filename
+        loadingFilename.toolTip = filename
+        loadingBox.isHidden = false
+        progress.startAnimation(nil)
+        // Expose the loading controls instead of describing the retained image as the new selection.
+        setAccessibilityElement(false)
+    }
+
+    private func hideLoading() {
+        progress.stopAnimation(nil)
+        loadingBox.isHidden = true
     }
 
     @objc private func performMessageAction() { messageAction?() }

@@ -34,8 +34,8 @@ public enum ImageLoadError: LocalizedError {
 }
 
 public enum ImageLoader {
-    // One serial decoder, no prefetch/cache, and this pixel limit bound retained decoded data
-    // to roughly 256 MiB for an 8-bit RGBA image. Image I/O can use additional working memory.
+    // Each decoded image is bounded to roughly 256 MiB for 8-bit RGBA pixels.
+    // ImageStore separately bounds cached images; Image I/O uses additional working memory.
     public static let maximumPixelCount = 64_000_000
 
     public static func validateFormat(_ url: URL) throws -> ImageFormat {
@@ -52,20 +52,43 @@ public enum ImageLoader {
         throw ImageLoadError.unsupported
     }
 
-    public static func discover(in folder: URL) throws -> [ImageEntry] {
+    public static func discover(in folder: URL, isCancelled: () -> Bool = { false }) throws -> [ImageEntry] {
+        try discover(in: folder, isCancelled: isCancelled, readEntry: { try details(at: $0).entry })
+    }
+
+    // The metadata-read boundary allows deterministic cancellation tests without timing Image I/O.
+    static func discover(
+        in folder: URL, isCancelled: () -> Bool, readEntry: (URL) throws -> ImageEntry
+    ) throws -> [ImageEntry] {
+        func checkCancellation() throws {
+            if isCancelled() { throw CancellationError() }
+        }
+        try checkCancellation()
         let urls = try FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .creationDateKey],
             options: [.skipsHiddenFiles])
-        return urls.compactMap { url in
+        let entries = try urls.compactMap { discoveredURL -> ImageEntry? in
+            try checkCancellation()
+            // FileManager may return a resolved path (for example /private/var instead of /var).
+            // Keep entries rooted in the granted folder so the opened image is not added twice.
+            let url = folder.appendingPathComponent(discoveredURL.lastPathComponent)
             guard let format = ImageFormat(url: url),
-                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .creationDateKey]
+                let values = try? discoveredURL.resourceValues(forKeys: [
+                    .isRegularFileKey, .isSymbolicLinkKey, .creationDateKey,
+                ]
                 ),
                 values.isRegularFile == true, values.isSymbolicLink != true
             else { return nil }
             // Keep unreadable supported files navigable so a single bad file does not block the folder.
-            return (try? details(at: url).entry)
+            let entry =
+                (try? readEntry(url))
                 ?? ImageEntry(url: url, format: format, createdAt: values.creationDate)
+            try checkCancellation()
+            return entry
         }
+        // Also cover empty folders and a cancellation after the final skipped entry.
+        try checkCancellation()
+        return entries
     }
 
     public static func details(at url: URL) throws -> ImageDetails {
