@@ -15,7 +15,7 @@ private func cacheTestFolder() throws -> URL {
 func imageStoreReuseAndBudget() async throws {
     let folder = try cacheTestFolder()
     defer { try? FileManager.default.removeItem(at: folder) }
-    let urls = ["a.png", "b.png", "c.png"].map { folder.appendingPathComponent($0) }
+    let urls = ["a.png", "b.png", "c.png", "d.png"].map { folder.appendingPathComponent($0) }
     for url in urls { try fixture(at: url) }
     let decoded = try ImageLoader.decode(at: urls[0])
     let cost = decoded.bytesPerRow * decoded.height
@@ -31,6 +31,12 @@ func imageStoreReuseAndBudget() async throws {
     let evicted = try await store.load(at: urls[1], generation: 1)
     #expect(evicted.image !== b.image)
     #expect(await store.cachedBytes <= cost * 2)
+    let countLimited = ImageStore(byteLimit: cost * 4)
+    let oldest = try await countLimited.load(at: urls[0], generation: 1)
+    for url in urls.dropFirst() { _ = try await countLimited.load(at: url, generation: 1) }
+    #expect(await countLimited.cachedBytes == cost * 3)
+    let replaced = try await countLimited.load(at: urls[0], generation: 1)
+    #expect(replaced.image !== oldest.image)
     let uncached = ImageStore(byteLimit: cost - 1)
     let first = try await uncached.load(at: urls[0], generation: 1)
     let second = try await uncached.load(at: urls[0], generation: 1)

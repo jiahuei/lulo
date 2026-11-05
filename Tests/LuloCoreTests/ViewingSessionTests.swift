@@ -168,6 +168,8 @@ func retainedOrderTracksEveryInput() {
     session.reconcileSelection()
     session.preferences.ascending = false
     #expect(names(session) == ["b.jpg", "a.jpg"])
+    session.updateEntry(entry("a.jpg", rating: 5))
+    #expect(names(session) == ["a.jpg", "b.jpg"])
     var copy = session
     copy.preferences.sort = .name
     #expect(names(copy) == ["b.jpg", "a.jpg"])
