@@ -45,6 +45,7 @@ jobs:
       - name: Package universal test app
         run: bash tools/package-app.sh
       - name: Measure navigation and photo loading
+        shell: bash
         env:
           BASELINE_REF: ${{ github.event.pull_request.base.sha }}
         run: bash tools/benchmark-navigation.sh "$BASELINE_REF" | tee build/navigation-benchmark.txt
