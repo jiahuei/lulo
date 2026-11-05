@@ -2,6 +2,13 @@
 
 Run commands from the repository root. Lulo targets macOS 14+. The pinned application toolchain is **Xcode 16.4 (16F6), Apple Swift 6.1.2**, matching `.github/workflows/macos.yml`. AppKit, Image I/O, and interactive verification require macOS.
 
+Open `Lulo.xcodeproj` with Xcode 16.4 and run the shared **Lulo** scheme. See [Build and test](#build-and-test) for command-line checks and local signing. The initial implementation needs the interactive macOS verification below before release.
+
+- [Product behavior and decisions](docs/PRODUCT.md)
+- [Interactive macOS verification](docs/MACOS-VERIFICATION.md)
+- [Agent guidelines](AGENTS.md)
+- [Swift and macOS conventions](docs/CONVENTIONS.md)
+
 ## Download a PR test build
 
 Every pull request, including drafts, runs the macOS workflow and uploads `Lulo-macOS-universal` after tests, analysis, and packaging succeed. Its **Lulo test build** comment links directly to the downloadable artifact and identifies the source commit. The workflow run summary also contains the download link. Builds support Apple Silicon and Intel Macs running macOS 14 or later.
@@ -90,3 +97,7 @@ git diff --check
 Format only changed documentation/configuration paths with `npx --yes prettier@3.8.3 --write <paths>`.
 
 Documentation checks run on pushes to every branch. macOS checks and app packaging run on pull requests and pushes to `main`, with read-only repository permissions. The separate PR-comment workflow uses trusted default-branch code with permission to read run metadata and write PR comments; it never downloads or executes PR artifacts. Local task records under `tasks/` are ignored by Git and Prettier. Signing credentials and generated build/distribution artifacts must stay out of Git. Dependency lockfiles remain trackable if dependencies are added later.
+
+## Repository background
+
+The repository foundation is adapted from [Talking Clock PR #1](https://github.com/jiahuei/ios-talking-clock/pull/1), using the reference repository's [main-branch files at `71a1f23`](https://github.com/jiahuei/ios-talking-clock/tree/71a1f23c251bbd288e1184a27950563daad53fbd). No image-viewer reference application code is included.
