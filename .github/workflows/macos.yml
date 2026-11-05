@@ -21,6 +21,8 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
       - name: Verify toolchain
         run: |
           xcodebuild -version
@@ -43,7 +45,9 @@ jobs:
       - name: Package universal test app
         run: bash tools/package-app.sh
       - name: Measure navigation and photo loading
-        run: bash tools/benchmark-navigation.sh | tee build/navigation-benchmark.txt
+        env:
+          BASELINE_REF: ${{ github.event.pull_request.base.sha }}
+        run: bash tools/benchmark-navigation.sh "$BASELINE_REF" | tee build/navigation-benchmark.txt
       - name: Save test app
         id: app
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

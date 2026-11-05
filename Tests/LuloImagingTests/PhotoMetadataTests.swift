@@ -8,7 +8,7 @@ import Testing
 @Test
 func realPhotoMetadataAndDecode() throws {
     let url = try #require(
-        Bundle.module.url(forResource: "DSCF2143-LR", withExtension: "jpg", subdirectory: "Fixtures"))
+        Bundle.module.url(forResource: "DSCF2143-LR-light", withExtension: "jpg", subdirectory: "Fixtures"))
     let before = SHA256.hash(data: try Data(contentsOf: url))
     let details = try ImageLoader.details(at: url)
     let fields = Dictionary(uniqueKeysWithValues: details.groups.flatMap(\.fields).map { ($0.name, $0.value) })

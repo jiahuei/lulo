@@ -26,7 +26,11 @@ Fit to Window is the initial saved default. It preserves aspect ratio, shows the
 
 Scrolling upward over the image increases zoom; downward decreases it. Natural-scroll device direction is normalized. Double-click first selects 100%; the next double-click restores the saved default. With a 100% default both destinations are 100%. Manual scrolling starts a new double-click pair. Drag an oversized image to pan; pan is constrained to its edges. Temporary zoom is limited to 1%–3200%.
 
-Image I/O applies orientation during decoding; Core Graphics draws the resulting image with its color space and alpha. A serial queue and a 64-megapixel input limit bound concurrent decoding and retained image memory. Larger images show a recoverable limit message rather than silently substituting a reduced-resolution image at 100%. A typical 8-bit RGBA image at this limit occupies about 256 MiB; Image I/O working memory and display buffers are additional. No decoded cache or prefetch is maintained. Canceled queued loads are skipped, and completed loads must match the latest request before changing presentation.
+Image I/O applies orientation during decoding; Core Graphics draws the resulting image with its color space and alpha. A serial image-store actor keeps decoding off the main actor, separate from folder metadata discovery. A 64-megapixel input limit bounds each decode; larger images show a recoverable limit message rather than silently substituting reduced resolution at 100%.
+
+Navigation retains the filtered/sorted order until entries, filtering, or sort preferences change. A least-recently-used cache retains at most three full-resolution images and at most 256 MiB of decoded pixel buffers, including their metadata. Revisits check file size and modification time before reuse; explicit opens start a new cache generation. One adjacent image in the current navigation direction is prefetched only within authorized files. Changing direction, filters, sorting, or opening a new image cancels obsolete queued prefetch work. An already-running Image I/O decode cannot be interrupted; its result can populate the cache but cannot replace a newer selection.
+
+The cache budget excludes the displayed image when evicted, the active decode, Image I/O working memory, and display buffers. A typical 8-bit RGBA image at the input limit occupies about 256 MiB. Prefetch failures remain silent until that file is selected, when the usual recoverable error is shown. Full-resolution pixel data and metadata are unchanged by reuse.
 
 ## Sorting and filtering decisions
 
@@ -56,7 +60,7 @@ Missing fields are omitted. Dimensions are orientation-adjusted source dimension
 
 ## Architecture and platform references
 
-`LuloCore` owns value types for preferences, session selection, sorting/filtering, and zoom. `LuloImaging` uses Foundation and Image I/O for metadata, decoding, directory discovery, and security-scoped access. The AppKit application owns the single window, native controls, permission panels, rendering, and a serial operation queue. UI state stays on the main actor. Session generations reject old folder scans; request identifiers reject old image loads.
+`LuloCore` owns value types for preferences, session selection, sorting/filtering, and zoom. `LuloImaging` uses Foundation and Image I/O for metadata, decoding, directory discovery, and security-scoped access. The AppKit application owns the single window, native controls, permission panels, rendering, a background folder-discovery queue, and a serial image-store actor. UI state stays on the main actor. Session generations reject old folder scans; request identifiers reject old image loads.
 
 There are no external package dependencies or copied upstream application sources. These native APIs inform the implementation:
 

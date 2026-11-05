@@ -3,12 +3,6 @@ import LuloCore
 import LuloImaging
 import UniformTypeIdentifiers
 
-// CGImage is immutable. Only the main actor installs it in the view.
-private struct LoadedImage: @unchecked Sendable {
-    let image: CGImage
-    let details: ImageDetails
-}
-
 @MainActor
 final class ViewerController: NSWindowController {
     private var session = ViewingSession(preferences: Preferences(defaults: .standard))
@@ -31,7 +25,10 @@ final class ViewerController: NSWindowController {
     private var fileAccess: FileAccess?
     private var folderAccess: FileAccess?
     private var folderPanel: NSOpenPanel?
-    private var loadOperation: Operation?
+    private let imageStore = ImageStore()
+    private var loadTask: Task<Void, Never>?
+    private var prefetchTask: Task<Void, Never>?
+    private var navigationDirection = 1
     private var request = 0
     private var openedURL: URL?
 
@@ -273,6 +270,9 @@ final class ViewerController: NSWindowController {
         folderPanel?.cancel(nil)
         folderPanel = nil
         worker.cancelAllOperations()
+        loadTask?.cancel()
+        prefetchTask?.cancel()
+        navigationDirection = 1
         request += 1
         openedURL = url
         fileAccess = FileAccess(url: url)
@@ -359,6 +359,7 @@ final class ViewerController: NSWindowController {
                         self.session.replaceEntries(entries)
                         if self.session.selectedURL != selected { self.loadSelection() }
                         self.updateStatus()
+                        self.prefetchNeighbor()
                     case .failure:
                         self.status.stringValue = "Folder could not be read. The opened image is still available."
                     }
@@ -368,7 +369,8 @@ final class ViewerController: NSWindowController {
     }
 
     private func loadSelection() {
-        loadOperation?.cancel()
+        loadTask?.cancel()
+        prefetchTask?.cancel()
         request += 1
         let currentRequest = request
         canvas.image = nil
@@ -384,36 +386,50 @@ final class ViewerController: NSWindowController {
         canvas.showMessage("Loading image…", detail: url.lastPathComponent, loading: true)
         window?.title = url.lastPathComponent
         let access = url == openedURL ? fileAccess : folderAccess
-        let operation = BlockOperation { [weak self] in
-            let result = Result {
-                try LoadedImage(image: ImageLoader.decode(at: url), details: ImageLoader.details(at: url))
-            }
-            _ = withExtendedLifetime(access) {
-                Task { @MainActor [weak self] in
-                    guard let self, self.request == currentRequest else { return }
-                    switch result {
-                    case .success(let loaded):
-                        let entries = self.session.entries.map { $0.url == url ? loaded.details.entry : $0 }
-                        self.session.replaceEntries(entries)
-                        guard self.session.selectedURL == url else {
-                            self.loadSelection()
-                            return
-                        }
-                        self.canvas.image = loaded.image
-                        self.canvas.setAccessibilityLabel(url.lastPathComponent)
-                        self.showMetadata(loaded.details)
-                    case .failure(let error):
-                        self.canvas.showMessage(
-                            "Cannot display this image", detail: error.localizedDescription,
-                            actionTitle: "Open Another Image…", action: { [weak self] in self?.openPanel() })
-                    }
-                    self.updateStatus()
+        let generation = session.generation
+        let store = imageStore
+        loadTask = Task { [weak self] in
+            do {
+                let loaded = try await store.load(at: url, generation: generation, access: access)
+                guard !Task.isCancelled, let self, self.request == currentRequest else { return }
+                self.session.updateEntry(loaded.details.entry)
+                guard self.session.selectedURL == url else {
+                    self.loadSelection()
+                    return
                 }
+                self.canvas.image = loaded.image
+                self.canvas.setAccessibilityLabel(url.lastPathComponent)
+                self.showMetadata(loaded.details)
+                self.updateStatus()
+                self.prefetchNeighbor()
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, let self, self.request == currentRequest else { return }
+                self.canvas.showMessage(
+                    "Cannot display this image", detail: error.localizedDescription,
+                    actionTitle: "Open Another Image…", action: { [weak self] in self?.openPanel() })
+                self.updateStatus()
             }
         }
-        loadOperation = operation
-        worker.addOperation(operation)
         updateStatus()
+    }
+
+    private func prefetchNeighbor() {
+        prefetchTask?.cancel()
+        guard canvas.image != nil, session.visibleEntries.count > 1 else { return }
+        var neighbor = session
+        neighbor.navigate(navigationDirection)
+        guard let url = neighbor.selectedURL, url != session.selectedURL else { return }
+        let access = url == openedURL ? fileAccess : folderAccess
+        guard let access else { return }
+        let generation = session.generation
+        let store = imageStore
+        // One likely next image shares the serial decoder; cancelled queued work is skipped.
+        // A prefetch failure is presented only if the user actually selects that file.
+        prefetchTask = Task(priority: .utility) {
+            _ = try? await store.load(at: url, generation: generation, access: access)
+        }
     }
 
     private func updateStatus() {
@@ -437,6 +453,7 @@ final class ViewerController: NSWindowController {
 
     private func navigate(_ delta: Int) {
         guard session.selectedURL != nil else { return }
+        navigationDirection = delta < 0 ? -1 : 1
         session.navigate(delta)
         loadSelection()
     }
@@ -454,6 +471,7 @@ final class ViewerController: NSWindowController {
         canvas.displayDefault = session.preferences.display
         if oldDisplay != session.preferences.display { canvas.resetZoom() }
         updateStatus()
+        prefetchNeighbor()
     }
 
     @objc private func filtersChanged() {
@@ -464,6 +482,7 @@ final class ViewerController: NSWindowController {
         session.reconcileSelection()
         if session.selectedURL != previous { loadSelection() }
         updateStatus()
+        prefetchNeighbor()
     }
 
     @objc func toggleSidebar() {

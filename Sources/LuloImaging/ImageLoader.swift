@@ -34,8 +34,8 @@ public enum ImageLoadError: LocalizedError {
 }
 
 public enum ImageLoader {
-    // One serial decoder, no prefetch/cache, and this pixel limit bound retained decoded data
-    // to roughly 256 MiB for an 8-bit RGBA image. Image I/O can use additional working memory.
+    // Each decoded image is bounded to roughly 256 MiB for 8-bit RGBA pixels.
+    // ImageStore separately bounds cached images; Image I/O uses additional working memory.
     public static let maximumPixelCount = 64_000_000
 
     public static func validateFormat(_ url: URL) throws -> ImageFormat {

@@ -149,3 +149,33 @@ func missingMetadataOrderIsStable() {
         #expect(names(session) == ["c.jpg", "a.jpg", "b.jpg"])
     }
 }
+
+/// Ensures retained ordering refreshes for entry metadata, nested filter/sort changes, replacement, and reopen.
+@Test
+func retainedOrderTracksEveryInput() {
+    var session = ViewingSession(preferences: Preferences(sort: .rating))
+    session.open(entry("a.jpg", rating: 1))
+    session.replaceEntries([entry("a.jpg", rating: 1), entry("b.jpg", rating: 2)])
+    session.updateEntry(entry("a.jpg", rating: 3))
+    #expect(names(session) == ["b.jpg", "a.jpg"])
+    session.filter.rating = 2
+    session.reconcileSelection()
+    #expect(names(session) == ["b.jpg"])
+    session.updateEntry(entry("b.jpg", rating: 4))
+    #expect(session.visibleEntries.isEmpty)
+    #expect(session.selectedURL == nil)
+    session.filter = ImageFilter()
+    session.reconcileSelection()
+    session.preferences.ascending = false
+    #expect(names(session) == ["b.jpg", "a.jpg"])
+    var copy = session
+    copy.preferences.sort = .name
+    #expect(names(copy) == ["b.jpg", "a.jpg"])
+    session.replaceEntries([entry("c.jpg", rating: 5)])
+    #expect(names(copy) == ["b.jpg", "a.jpg"])
+    #expect(names(session) == ["c.jpg"])
+    session.open(entry("new.png"))
+    #expect(names(session) == ["new.png"])
+    session.open(nil)
+    #expect(session.visibleEntries.isEmpty)
+}

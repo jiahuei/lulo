@@ -6,7 +6,7 @@ import LuloImaging
 /// Measures production session navigation and the supplied full-resolution photo without timing fixture setup.
 @main
 enum BenchmarkNavigation {
-    static func main() throws {
+    static func main() async throws {
         let url = URL(fileURLWithPath: CommandLine.arguments[1])
         let entries = (0..<2000).reversed().map {
             ImageEntry(url: URL(fileURLWithPath: "/benchmark/photo\($0).jpg"), format: .jpeg)
@@ -28,6 +28,23 @@ enum BenchmarkNavigation {
         try measure("photo_metadata", count: 8) {
             guard try ImageLoader.details(at: url).width == 4085 else { throw BenchmarkError.invalidImage }
         }
+        #if !BASELINE
+            let store = ImageStore()
+            let prefetched = try await store.load(at: url, generation: 1)
+            var samples: [Double] = []
+            for _ in 0..<20 {
+                let start = ContinuousClock.now
+                let loaded = try await store.load(at: url, generation: 1)
+                guard loaded.image === prefetched.image else { throw BenchmarkError.invalidImage }
+                let elapsed = start.duration(to: .now).components
+                samples.append(Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15)
+            }
+            print(
+                "photo_store_warm: milliseconds=\(samples); median=\(samples.sorted()[samples.count / 2]); max=\(samples.max()!)"
+            )
+            print("photo_store_cached_bytes: \(await store.cachedBytes)")
+        #endif
+
     }
 
     private static func measure(_ name: String, count: Int, work: () throws -> Void) rethrows {

@@ -60,6 +60,22 @@ The command compiles the current view/controller with a small preview entry poin
 
 This unsandboxed development helper is not bundled with Lulo. View captures establish layout evidence; they do not establish Finder integration, sandbox enforcement, mouse/trackpad behavior, display color fidelity, or VoiceOver behavior. The interactive checklist remains required.
 
+## Navigation performance and photo regression
+
+`Tests/LuloImagingTests/Fixtures/DSCF2143-LR-light.jpg` is the owner's explicitly approved public fixture: an 837 KB, 4085 × 6128 JPEG with its shooting and GPS metadata intact. The fixture README records permission. Package tests assert exposure, ISO, focal lengths, camera/lens, capture timezone, GPS coordinates, altitude, original dimensions, and unchanged bytes. Cache tests cover reuse, byte limits/eviction, file changes/deletion, new sessions, cancelled queued requests, and a cancelled prefetch whose completed decode is reused.
+
+After `bash tools/package-app.sh`, run:
+
+```sh
+bash tools/benchmark-navigation.sh
+# Optional before/after comparison, using the same fixture and compiler on this machine:
+bash tools/benchmark-navigation.sh origin/main
+```
+
+The comparison compiles the base revision's actual package sources in a temporary directory. The candidate uses the optimized Release modules built for the app. Both run the same 2,000-entry navigation/status workload, full-resolution JPEG decoder, and metadata reader. Output includes every sample, median, and maximum in milliseconds; the candidate also measures warm image-store reuse and retained pixel bytes. CI runs the comparison against each PR's base commit. Setup/sorting is excluded from navigation samples; the first decode is reported alongside subsequent reads without flushing the OS filesystem cache. These component measurements do not include display/paint latency and are not a comparison against JPEGView. No machine-dependent timing threshold gates CI.
+
+For interactive checks, use the PR app with a folder of large photos. Try paced next/previous navigation, rapid repeats/reversals, metadata-visible navigation, sorting/filter changes, external file replacement/deletion, and opening another file during a load. Confirm the final selection, full-resolution zoom, and sandbox behavior on your laptop.
+
 ## Documentation checks
 
 Use Node.js 24, matching `.github/workflows/lint.yml`. The pinned Prettier command needs npm registry access unless cached.

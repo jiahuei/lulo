@@ -13,7 +13,7 @@ private func withFolder(_ work: (URL) throws -> Void) throws {
     try work(folder)
 }
 
-private func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 72, rating: Int? = nil) throws {
+func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 72, rating: Int? = nil) throws {
     let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
     let context = try #require(
         CGContext(
