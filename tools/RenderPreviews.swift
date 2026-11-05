@@ -198,19 +198,23 @@ enum RenderPreviews {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.001))
             }
             guard ready() else {
-                FileHandle.standardError.write(Data("Scan cancellation timeout: \(stage)\n".utf8))
+                FileHandle.standardError.write(Data("Scan cancellation timeout: \(stage), state=\(gate.state)\n".utf8))
                 throw PreviewError.navigationFailed
             }
         }
         viewer.open(oldFolder.appendingPathComponent("image0.png"))
         try waitUntil("initial image") { canvas.image != nil }
-        var grant: FileAccess? = FileAccess(url: oldFolder)
-        weak var retainedGrant = grant
-        viewer.useAuthorizedFolder(grant!)
-        grant = nil
+        weak var retainedGrant: FileAccess?
+        // AppKit drains autoreleased Objective-C blocks/operation arrays after each real event.
+        // Match that lifetime here instead of retaining them in the command-line harness's outer pool.
+        autoreleasepool {
+            let grant = FileAccess(url: oldFolder)
+            retainedGrant = grant
+            viewer.useAuthorizedFolder(grant)
+        }
         // The third checkpoint follows the first metadata read. No sleeps or disk-speed assumptions.
         try waitUntil("scan checkpoint") { gate.state.paused }
-        viewer.open(newImage)
+        autoreleasepool { viewer.open(newImage) }
         try waitUntil("new image while scan is blocked") { canvas.image != nil && window.title == "new.png" }
         guard retainedGrant != nil else { throw PreviewError.navigationFailed }
         gate.release()
