@@ -12,9 +12,9 @@ Left/right arrows on the image, toolbar navigation buttons, and Command-[ / Comm
 
 ## Interface
 
-The image occupies the main workspace. A native unified toolbar contains Open Image, Previous/Next, the saved zoom default, Browse, and Metadata. System fonts and semantic colors follow macOS light/dark appearance. The window title identifies the selected file.
+The image occupies the main workspace. A native unified toolbar contains Open Image, Previous/Next, the saved zoom default, Sort & Filter, and Metadata. System fonts and semantic colors follow macOS light/dark appearance. The window title identifies the selected file.
 
-Browse opens a transient popover with labeled sort, direction, rating, and file-type controls. Changes apply immediately. The Browse button reports the number of active filters, and the status bar names those filters beside the image position. Clear Filters is available both in Browse and in the no-matches state. New explicit opens dismiss Browse and return keyboard focus to the image.
+Sort & Filter opens a transient popover with labeled sort, direction, rating, and file-type controls. Changes apply immediately. The Sort & Filter button reports the number of active filters, and the status bar names those filters beside the image position. Clear Filters is available both in Sort & Filter and in the no-matches state. New explicit opens dismiss Sort & Filter and return keyboard focus to the image.
 
 The initial empty state offers Open Image, loading uses a compact translucent box with a native spinner and the incoming filename, and failed image loads offer Open Another Image. Navigation retains the previous image and its zoom/pan while loading, then swaps in the completed image at the saved display default. The loading filename follows the latest selection during rapid arrow presses; obsolete completions cannot hide its overlay. Metadata is cleared while loading so it cannot be mistaken for the incoming file. Errors and empty filters clear the retained image. Long loading filenames truncate in the middle, with the full name available to accessibility and a tooltip. The metadata inspector uses distinct group headings, secondary field labels, and selectable values with wrapping for long paths/comments. Its width is 300 points; the viewer supports windows down to 720 points wide.
 

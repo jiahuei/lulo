@@ -85,8 +85,9 @@ final class ViewerController: NSWindowController {
         configureButton(next, title: "Next image", symbol: "chevron.right", action: #selector(nextImage))
         configureButton(info, title: "Show metadata", symbol: "sidebar.right", action: #selector(toggleSidebar))
         info.setButtonType(.toggle)
-        configureButton(browse, title: "Browse", symbol: "line.3.horizontal.decrease", action: #selector(showBrowse))
-        browse.title = "Browse"
+        configureButton(
+            browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease", action: #selector(showBrowse))
+        browse.title = "Sort & Filter"
         browse.imagePosition = .imageLeading
         makeBrowsePopover()
         let toolbar = NSToolbar(identifier: "Viewer")
@@ -168,7 +169,7 @@ final class ViewerController: NSWindowController {
     }
 
     private func makeBrowsePopover() {
-        let heading = NSTextField(labelWithString: "Browse images")
+        let heading = NSTextField(labelWithString: "Sort & Filter")
         heading.font = .systemFont(ofSize: 15, weight: .semibold)
         let reset = NSButton(title: "Clear Filters", target: self, action: #selector(clearFilters))
         let grid = NSGridView(views: [
@@ -461,9 +462,9 @@ final class ViewerController: NSWindowController {
         if let format = session.filter.format { filters.append(format.rawValue) }
         filterSummary.stringValue = filters.isEmpty ? "" : "Filtered by " + filters.joined(separator: " · ")
         filterSummary.toolTip = filterSummary.stringValue
-        browse.title = filters.isEmpty ? "Browse" : "Browse (\(filters.count))"
+        browse.title = filters.isEmpty ? "Sort & Filter" : "Sort & Filter (\(filters.count))"
         browse.setAccessibilityLabel(
-            filters.isEmpty ? "Browse images" : "Browse images, \(filters.count) active filters")
+            filters.isEmpty ? "Sort & Filter" : "Sort & Filter, \(filters.count) active filters")
     }
 
     private func navigate(_ delta: Int) {
@@ -541,7 +542,7 @@ extension ViewerController: NSToolbarDelegate {
             item.label = "Default Zoom"
             item.view = display
         case "Browse":
-            item.label = "Browse"
+            item.label = "Sort & Filter"
             item.view = browse
         case "Metadata":
             item.label = "Metadata"

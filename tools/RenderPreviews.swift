@@ -47,7 +47,9 @@ enum RenderPreviews {
         settle()
         try capture(window, to: output.appendingPathComponent("metadata-compact-dark.png"))
         try verifyLoadingOverlay(window, output: output)
-        if let browse = window.toolbar?.items.compactMap({ $0.view as? NSButton }).first(where: { $0.title == "Browse" }
+        if let browse = window.toolbar?.items.compactMap({ $0.view as? NSButton }).first(where: {
+            $0.title == "Sort & Filter"
+        }
         ) {
             browse.performClick(nil)
             settle()
