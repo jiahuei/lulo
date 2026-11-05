@@ -6,12 +6,15 @@ Adapted with minimal project-specific changes from [Talking Clock](https://githu
 
 ## Project Status and Layout
 
-Lulo is a macOS image viewer. This repository currently contains only its documentation and tooling foundation; no application, package, tests, or Xcode project exists yet. Product requirements, architecture, and an implementation plan will be defined separately.
+Lulo is a native macOS 14+ image viewer. The app uses AppKit and a local Swift package, with Xcode 16.4 (16F6) / Apple Swift 6.1.2 pinned in `.github/workflows/macos.yml`. Product behavior is defined in `docs/PRODUCT.md`; interactive release checks are in `docs/MACOS-VERIFICATION.md`.
 
 - `README.md`: project purpose and current status.
 - `QUICKSTART.md`: available development checks.
 - `docs/CONVENTIONS.md`: Swift and macOS development conventions.
-- Read `docs/CONVENTIONS.md` before adding application code, and update these instructions when the implementation establishes its layout and toolchain.
+- `App/` and `Lulo.xcodeproj`: AppKit application, read-only sandbox entitlements, and shared Lulo scheme.
+- `Sources/LuloCore` and `Tests/LuloCoreTests`: portable preferences, ordering, selection, and zoom.
+- `Sources/LuloImaging` and `Tests/LuloImagingTests`: macOS Image I/O, metadata, and file access.
+- Read `docs/CONVENTIONS.md` and `docs/PRODUCT.md` before changing application code.
 - Use synthetic or appropriately licensed image fixtures in committed tests and screenshots; do not commit personal photos or metadata.
 
 The user's job as a senior software engineer is dependent on you implementing clean code with elegant architecture.
@@ -96,10 +99,10 @@ The user's job as a senior software engineer is dependent on you implementing cl
 
 #### Local development environment
 
-- Choose the minimum macOS target and pin the Xcode/Swift toolchain when adding the app; this foundation does not select them.
+- Use macOS 14+ and the pinned Xcode 16.4 / Swift 6.1.2 toolchain; see `QUICKSTART.md`.
 - Run development commands from the repository root; see `QUICKSTART.md` for available checks.
-- If a Swift package is added, run `swift test` for its tests.
-- Once an Xcode project exists, document and run its unsigned macOS build command using the actual project and shared scheme.
+- Run `swift test` on macOS for both package test targets.
+- Run the unsigned Lulo build and analysis command documented in `QUICKSTART.md`.
 - Keep file-access tests isolated in temporary directories. Test image decoding with small, synthetic fixtures, including malformed input.
 - Validate Finder opening, sandbox access, color/orientation rendering, keyboard navigation, and accessibility on macOS. Linux cannot compile or run AppKit and SwiftUI.
 - Do not import the reference application's alarm, audio, iOS build, or release infrastructure.
@@ -136,18 +139,18 @@ Before reporting completion, review the final diff for correctness, unnecessary 
 - Start with changed files for fast feedback, then run the applicable repository-wide checks used by CI.
 - When editing or creating Markdown files, run every applicable formatting or linting checks.
 
-The push-only documentation CI runs `npx --yes prettier@3.8.3 --check '**/*.md' '.github/**/*.yml' .prettierrc`. Use that exact version for formatting this foundation. It needs registry access if not cached.
+The push-only documentation CI runs `npx --yes prettier@3.8.3 --check '**/*.md' '.github/**/*.yml' '.github/scripts/*.cjs' .prettierrc`. Use that exact version for formatting this foundation. It needs registry access if not cached.
 
-Swift formatting, package tests, and macOS build CI must be added alongside their first source files and manifests. Do not run jobs against nonexistent paths. The `.swift-format` configuration is prepared for that implementation.
+PR-comment regression tests run with `node --test .github/scripts/comment-pr-build.test.cjs` in the lint workflow. Swift formatting, package tests, unsigned build/static analysis, and universal test-app packaging run in `.github/workflows/macos.yml`. Packaging uses `bash tools/package-app.sh`; the separate `pr-build-comment.yml` workflow runs trusted default-branch code and only reads build metadata before commenting. The repository `.swift-format` configuration applies to package and app sources.
 
 #### Swift and macOS
 
-Once the implementation exists:
+For application changes:
 
 1. Inspect the test and build workflow added with the app and use its pinned Xcode/Swift toolchain.
 2. Confirm the selected versions: `xcodebuild -version` and `swift --version`.
-3. Run `swift format lint --strict --recursive Package.swift Sources Tests`; apply formatting with `swift format format --in-place --recursive Package.swift Sources Tests`.
-4. Run `swift test` if the implementation includes a Swift package.
+3. Run `swift format lint --strict --recursive Package.swift Sources Tests App tools`; apply formatting with `swift format format --in-place --recursive Package.swift Sources Tests App tools`.
+4. Run `swift test` on macOS.
 5. Run the unsigned macOS build and platform integration checks configured in CI.
 6. Record interactive macOS verification separately; compilation does not prove correct file access or rendering.
 

@@ -1,9 +1,9 @@
 # Swift and macOS conventions
 
-These conventions guide future implementation; they do not define the feature set, deployment target, or application architecture.
+These conventions guide the implementation. See `PRODUCT.md` for behavior and architecture, and `../QUICKSTART.md` for the macOS target, pinned toolchain, and checks.
 
 - Prefer native platform capabilities and standard-library solutions before adding dependencies or custom infrastructure.
-- Use the official `swift format` tool with the repository's `.swift-format` configuration. Pin the Swift toolchain and add checks alongside the first Swift sources.
+- Use the official `swift format` tool with the repository's `.swift-format` configuration. Use the Xcode/Swift toolchain pinned in `.github/workflows/macos.yml`.
 - Keep presentation state on the main actor. Perform file enumeration and image decoding away from the UI thread, and prevent obsolete asynchronous results from replacing the current selection.
 - Keep portable logic independent of AppKit and SwiftUI where that makes it easier to test. Introduce interfaces only when a concrete integration or test needs one.
 - Use native macOS controls, menu commands, keyboard shortcuts, semantic colors, and accessible labels. Verify VoiceOver, focus behavior, light/dark appearance, and window resizing on macOS.
