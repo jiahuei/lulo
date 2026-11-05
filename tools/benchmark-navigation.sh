@@ -6,6 +6,8 @@ set -euo pipefail
 benchmark_base="${1:-}"
 benchmark_target="$(uname -m)-apple-macos14.0"
 fixture=Tests/LuloImagingTests/Fixtures/DSCF2143-LR-light.jpg
+sw_vers
+sysctl -n machdep.cpu.brand_string
 if [ -n "$benchmark_base" ]; then
     baseline=$(mktemp -d)
     trap 'rm -rf "$baseline"' EXIT

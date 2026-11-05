@@ -20,6 +20,6 @@ Build using QUICKSTART.md, then run a locally signed app with the checked-in san
 - [ ] Compare hashes of all input images before and after viewing. Confirm no image, sidecar, or catalog files are created or modified.
 - [ ] Exercise a near-limit image and an image over 64 megapixels, then continue navigating. Measure resident memory during repeated rapid selections; distinguish decode working memory from retained image data.
 
-No interactive verification has yet been recorded in this repository.
+- [ ] Test navigation through a folder of large photos: paced steps, held arrows, direction reversals, and a new explicit open during loading. Confirm the newest selection wins and unchanged neighbors are reused without changing 100% detail or metadata. Replace/delete a viewed file externally and revisit it; verify updated pixels/metadata or a recoverable error.
 
-- Test navigation through a folder of large photos: paced steps, held arrows, direction reversals, and a new explicit open during loading. Confirm the newest selection wins and unchanged neighbors are reused without changing 100% detail or metadata. Replace/delete a viewed file externally and revisit it; verify updated pixels/metadata or a recoverable error.
+No interactive verification has yet been recorded in this repository.

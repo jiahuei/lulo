@@ -95,19 +95,24 @@ enum RenderPreviews {
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
             let metadata = descendants(root).compactMap({ $0 as? NSTextView }).first
         else { throw PreviewError.missingWindow }
-        func waitUntil(_ ready: () -> Bool) throws {
+        func waitUntil(_ stage: String, _ ready: () -> Bool) throws {
             let deadline = Date().addingTimeInterval(15)
             while !ready() && Date() < deadline {
                 if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
                 RunLoop.current.run(until: Date().addingTimeInterval(0.001))
             }
-            guard ready() else { throw PreviewError.navigationFailed }
+            guard ready() else {
+                let diagnostic =
+                    "Navigation timeout: \(stage), title=\(window.title), image=\(canvas.image?.width ?? 0)x\(canvas.image?.height ?? 0), metadataCharacters=\(metadata.string.count)\n"
+                FileHandle.standardError.write(Data(diagnostic.utf8))
+                throw PreviewError.navigationFailed
+            }
         }
         viewer.open(urls[0])
-        try waitUntil { canvas.image != nil && metadata.string.contains("a.jpg") }
+        try waitUntil("initial photo") { canvas.image != nil && metadata.string.contains("a.jpg") }
         // Only this temporary, harness-owned folder is granted; the real sandbox sheet is tested manually.
         viewer.useAuthorizedFolder(FileAccess(url: folder))
-        try waitUntil {
+        try waitUntil("folder discovery") {
             descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "1 of 3" }
         }
         func arrow(_ direction: Int) throws {
@@ -123,7 +128,9 @@ enum RenderPreviews {
         for direction in [1, 1, -1, -1] {
             try arrow(direction)
             index = (index + direction + urls.count) % urls.count
-            try waitUntil { canvas.image != nil && metadata.string.contains(urls[index].lastPathComponent) }
+            try waitUntil("arrow to \(urls[index].lastPathComponent)") {
+                canvas.image != nil && metadata.string.contains(urls[index].lastPathComponent)
+            }
             guard canvas.image?.width == 4085, canvas.image?.height == 6128 else {
                 throw PreviewError.navigationFailed
             }
@@ -133,11 +140,13 @@ enum RenderPreviews {
             try arrow(direction)
             index = (index + direction + urls.count) % urls.count
         }
-        try waitUntil { canvas.image != nil && metadata.string.contains(urls[index].lastPathComponent) }
+        try waitUntil("arrow to \(urls[index].lastPathComponent)") {
+            canvas.image != nil && metadata.string.contains(urls[index].lastPathComponent)
+        }
         guard window.title == urls[index].lastPathComponent else { throw PreviewError.navigationFailed }
         viewer.open(urls[0])
         viewer.open(urls[2])
-        try waitUntil { canvas.image != nil && metadata.string.contains("c.jpg") }
+        try waitUntil("superseded open") { canvas.image != nil && metadata.string.contains("c.jpg") }
         guard window.title == "c.jpg" else { throw PreviewError.navigationFailed }
         print("Verified arrow wrapping/reversal, rapid selections, and superseded explicit opens with the real photo.")
     }
