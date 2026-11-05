@@ -1,6 +1,7 @@
 import AppKit
 import ImageIO
 import LuloCore
+import LuloImaging
 import UniformTypeIdentifiers
 
 /// Renders the actual viewer with synthetic data and checks that controls and metadata fit its window.
@@ -77,8 +78,68 @@ enum RenderPreviews {
                 throw PreviewError.missingPopover
             }
         }
-        print("Rendered native viewer previews with a synthetic image.")
+        try verifyArrowNavigation(viewer)
+        print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures real arrow events keep image/metadata selection consistent through reversals and rapid repeats.
+    private static func verifyArrowNavigation(_ viewer: ViewerController) throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let photo = URL(fileURLWithPath: "Tests/LuloImagingTests/Fixtures/DSCF2143-LR-light.jpg")
+        let urls = ["a.jpg", "b.jpg", "c.jpg"].map { folder.appendingPathComponent($0) }
+        for url in urls { try FileManager.default.copyItem(at: photo, to: url) }
+        guard let window = viewer.window, let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let metadata = descendants(root).compactMap({ $0 as? NSTextView }).first
+        else { throw PreviewError.missingWindow }
+        func waitUntil(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            }
+            guard ready() else { throw PreviewError.navigationFailed }
+        }
+        viewer.open(urls[0])
+        try waitUntil { canvas.image != nil && metadata.string.contains("a.jpg") }
+        // Only this temporary, harness-owned folder is granted; the real sandbox sheet is tested manually.
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        try waitUntil {
+            descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "1 of 3" }
+        }
+        func arrow(_ direction: Int) throws {
+            guard
+                let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "",
+                    isARepeat: false, keyCode: direction > 0 ? 124 : 123)
+            else { throw PreviewError.navigationFailed }
+            canvas.keyDown(with: event)
+        }
+        var index = 0
+        for direction in [1, 1, -1, -1] {
+            try arrow(direction)
+            index = (index + direction + urls.count) % urls.count
+            try waitUntil { canvas.image != nil && metadata.string.contains(urls[index].lastPathComponent) }
+            guard canvas.image?.width == 4085, canvas.image?.height == 6128 else {
+                throw PreviewError.navigationFailed
+            }
+        }
+        // Queue rapid selections without waiting for intermediate decodes, including a direction reversal.
+        for direction in [1, 1, 1, -1, 1, -1, -1] {
+            try arrow(direction)
+            index = (index + direction + urls.count) % urls.count
+        }
+        try waitUntil { canvas.image != nil && metadata.string.contains(urls[index].lastPathComponent) }
+        guard window.title == urls[index].lastPathComponent else { throw PreviewError.navigationFailed }
+        viewer.open(urls[0])
+        viewer.open(urls[2])
+        try waitUntil { canvas.image != nil && metadata.string.contains("c.jpg") }
+        guard window.title == "c.jpg" else { throw PreviewError.navigationFailed }
+        print("Verified arrow wrapping/reversal, rapid selections, and superseded explicit opens with the real photo.")
     }
 
     private static func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
@@ -139,6 +200,6 @@ enum RenderPreviews {
 
     private enum PreviewError: Error {
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
-        case missingFilterControls, filterDidNotApply, filterDidNotClear
+        case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed
     }
 }

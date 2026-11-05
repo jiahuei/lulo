@@ -326,13 +326,20 @@ final class ViewerController: NSWindowController {
             guard let self else { return }
             if self.folderPanel === panel { self.folderPanel = nil }
             guard self.session.generation == generation, response == .OK, let url = panel.url else { return }
-            guard url.standardizedFileURL == parent else {
-                self.status.stringValue = "Choose the containing folder to enable navigation."
-                return
-            }
-            self.folderAccess = FileAccess(url: url)
-            self.discoverFolder()
+            self.useAuthorizedFolder(FileAccess(url: url))
         }
+    }
+
+    // The caller supplies the user's grant (or an owned test directory in the unsandboxed harness).
+    func useAuthorizedFolder(_ access: FileAccess) {
+        guard let openedURL,
+            access.url.standardizedFileURL == openedURL.deletingLastPathComponent().standardizedFileURL
+        else {
+            status.stringValue = "Choose the containing folder to enable navigation."
+            return
+        }
+        folderAccess = access
+        discoverFolder()
     }
 
     @objc func allowFolderNavigation() {

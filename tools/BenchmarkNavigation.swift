@@ -12,7 +12,7 @@ enum BenchmarkNavigation {
             ImageEntry(url: URL(fileURLWithPath: "/benchmark/photo\($0).jpg"), format: .jpeg)
         }
         var session = ViewingSession()
-        session.open(entries[0])
+        session.open(entries[entries.count / 2])
         session.replaceEntries(entries)
         try measure("navigation_and_status_2000_entries", count: 20) {
             session.navigate(1)
