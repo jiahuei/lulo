@@ -42,6 +42,8 @@ jobs:
           retention-days: 7
       - name: Package universal test app
         run: bash tools/package-app.sh
+      - name: Measure navigation and photo loading
+        run: bash tools/benchmark-navigation.sh | tee build/navigation-benchmark.txt
       - name: Save test app
         id: app
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

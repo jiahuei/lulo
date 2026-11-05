@@ -12,6 +12,8 @@ let package = Package(
         .target(name: "LuloCore"),
         .target(name: "LuloImaging", dependencies: ["LuloCore"]),
         .testTarget(name: "LuloCoreTests", dependencies: ["LuloCore"]),
-        .testTarget(name: "LuloImagingTests", dependencies: ["LuloImaging", "LuloCore"]),
+        .testTarget(
+            name: "LuloImagingTests", dependencies: ["LuloImaging", "LuloCore"],
+            resources: [.copy("Fixtures")]),
     ]
 )
