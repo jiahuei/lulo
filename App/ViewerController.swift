@@ -21,6 +21,8 @@ final class ViewerController: NSWindowController {
     private let browsePopover = NSPopover()
     private let filterSummary = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
+    typealias DiscoverImages = @Sendable (URL, @Sendable () -> Bool) throws -> [ImageEntry]
+    private let discoverImages: DiscoverImages
     private let worker = OperationQueue()
     private var fileAccess: FileAccess?
     private var folderAccess: FileAccess?
@@ -32,7 +34,8 @@ final class ViewerController: NSWindowController {
     private var request = 0
     private var openedURL: URL?
 
-    init() {
+    init(discoverImages: @escaping DiscoverImages = { try ImageLoader.discover(in: $0, isCancelled: $1) }) {
+        self.discoverImages = discoverImages
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -350,11 +353,15 @@ final class ViewerController: NSWindowController {
     private func discoverFolder() {
         guard let access = folderAccess else { return }
         let generation = session.generation
-        worker.addOperation { [weak self] in
-            let result = Result { try ImageLoader.discover(in: access.url) }
-            _ = withExtendedLifetime(access) {
-                Task { @MainActor [weak self] in
-                    guard let self, self.session.generation == generation else { return }
+        let discover = discoverImages
+        let operation = BlockOperation()
+        operation.addExecutionBlock { [weak self, weak operation] in
+            guard let operation else { return }
+            let result = Result { try discover(access.url, { operation.isCancelled }) }
+            withExtendedLifetime(access) {
+                guard !operation.isCancelled else { return }
+                _ = Task { @MainActor [weak self] in
+                    guard let self, self.session.generation == generation, !operation.isCancelled else { return }
                     switch result {
                     case .success(var entries):
                         if let opened = self.session.entries.first(where: { $0.url == self.openedURL }),
@@ -373,6 +380,7 @@ final class ViewerController: NSWindowController {
                 }
             }
         }
+        worker.addOperation(operation)
     }
 
     private func loadSelection() {

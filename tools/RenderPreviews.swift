@@ -79,6 +79,7 @@ enum RenderPreviews {
             }
         }
         try verifyArrowNavigation(viewer)
+        try verifyObsoleteFolderScan(fixture: fixture)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
     }
@@ -159,6 +160,68 @@ enum RenderPreviews {
         print("Verified arrow wrapping/reversal, rapid selections, and superseded explicit opens with the real photo.")
     }
 
+    /// Ensures a new explicit open cancels an active scan, retains its grant until exit, and rejects its results.
+    private static func verifyObsoleteFolderScan(fixture: URL) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let oldFolder = root.appendingPathComponent("old", isDirectory: true)
+        let newFolder = root.appendingPathComponent("new", isDirectory: true)
+        for folder in [oldFolder, newFolder] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        for index in 0..<8 {
+            try FileManager.default.copyItem(at: fixture, to: oldFolder.appendingPathComponent("image\(index).png"))
+        }
+        let newImage = newFolder.appendingPathComponent("new.png")
+        try FileManager.default.copyItem(at: fixture, to: newImage)
+        let gate = ScanCheckpointGate()
+        let viewer = ViewerController { folder, isCancelled in
+            defer { gate.finish() }
+            return try ImageLoader.discover(
+                in: folder,
+                isCancelled: {
+                    gate.checkpoint()
+                    return isCancelled()
+                })
+        }
+        defer {
+            gate.release()
+            viewer.window?.close()
+        }
+        guard let window = viewer.window, let content = window.contentView,
+            let canvas = descendants(content).compactMap({ $0 as? ImageCanvas }).first
+        else { throw PreviewError.missingWindow }
+        func waitUntil(_ stage: String, _ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            }
+            guard ready() else {
+                FileHandle.standardError.write(Data("Scan cancellation timeout: \(stage)\n".utf8))
+                throw PreviewError.navigationFailed
+            }
+        }
+        viewer.open(oldFolder.appendingPathComponent("image0.png"))
+        try waitUntil("initial image") { canvas.image != nil }
+        var grant: FileAccess? = FileAccess(url: oldFolder)
+        weak var retainedGrant = grant
+        viewer.useAuthorizedFolder(grant!)
+        grant = nil
+        // The third checkpoint follows the first metadata read. No sleeps or disk-speed assumptions.
+        try waitUntil("scan checkpoint") { gate.state.paused }
+        viewer.open(newImage)
+        try waitUntil("new image while scan is blocked") { canvas.image != nil && window.title == "new.png" }
+        guard retainedGrant != nil else { throw PreviewError.navigationFailed }
+        gate.release()
+        try waitUntil("scan exit and grant release") { gate.state.finished && retainedGrant == nil }
+        guard gate.state.checks == 3, !gate.state.timedOut, window.title == "new.png",
+            descendants(content).compactMap({ $0 as? NSTextField }).contains(where: { $0.stringValue == "1 of 1" })
+        else { throw PreviewError.navigationFailed }
+        print(
+            "Verified an active scan stops after one metadata read, preserves the new session, and releases its grant.")
+    }
+
     private static func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
 
     private static func descendants(_ view: NSView) -> [NSView] {
@@ -218,5 +281,49 @@ enum RenderPreviews {
     private enum PreviewError: Error {
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
         case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed
+    }
+}
+
+// NSCondition protects every state access shared by the UI harness and the discovery worker.
+private final class ScanCheckpointGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var checks = 0
+    private var paused = false
+    private var released = false
+    private var finished = false
+    private var timedOut = false
+
+    var state: (checks: Int, paused: Bool, finished: Bool, timedOut: Bool) {
+        condition.lock()
+        defer { condition.unlock() }
+        return (checks, paused, finished, timedOut)
+    }
+
+    func checkpoint() {
+        condition.lock()
+        defer { condition.unlock() }
+        checks += 1
+        guard checks == 3 else { return }
+        paused = true
+        let deadline = Date().addingTimeInterval(15)
+        while !released {
+            if !condition.wait(until: deadline) {
+                timedOut = true
+                break
+            }
+        }
+    }
+
+    func release() {
+        condition.lock()
+        defer { condition.unlock() }
+        released = true
+        condition.broadcast()
+    }
+
+    func finish() {
+        condition.lock()
+        defer { condition.unlock() }
+        finished = true
     }
 }

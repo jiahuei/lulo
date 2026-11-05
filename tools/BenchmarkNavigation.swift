@@ -44,7 +44,38 @@ enum BenchmarkNavigation {
             )
             print("photo_store_cached_bytes: \(await store.cachedBytes)")
         #endif
+        try measureFolderDiscovery(photo: url)
+    }
 
+    private static func measureFolderDiscovery(photo: URL) throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = folder.appendingPathComponent("photo0.jpg")
+        try FileManager.default.copyItem(at: photo, to: first)
+        // Link only the temporary copy: setup is excluded and the committed fixture is untouched.
+        for index in 1..<1000 {
+            try FileManager.default.linkItem(at: first, to: folder.appendingPathComponent("photo\(index).jpg"))
+        }
+        try measure("folder_metadata_1000_entries", count: 3) {
+            guard try ImageLoader.discover(in: folder).count == 1000 else { throw BenchmarkError.invalidSelection }
+        }
+        #if !BASELINE
+            try measure("folder_cancel_after_one_metadata_read", count: 3) {
+                var checks = 0
+                do {
+                    _ = try ImageLoader.discover(
+                        in: folder,
+                        isCancelled: {
+                            checks += 1
+                            return checks == 3
+                        })
+                    throw BenchmarkError.invalidSelection
+                } catch is CancellationError {
+                    guard checks == 3 else { throw BenchmarkError.invalidSelection }
+                }
+            }
+        #endif
     }
 
     private static func measure(_ name: String, count: Int, work: () throws -> Void) rethrows {
