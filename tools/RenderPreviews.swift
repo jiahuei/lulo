@@ -85,7 +85,7 @@ enum RenderPreviews {
 
     /// Ensures real arrow events keep image/metadata selection consistent through reversals and rapid repeats.
     private static func verifyArrowNavigation(_ viewer: ViewerController) throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let photo = URL(fileURLWithPath: "Tests/LuloImagingTests/Fixtures/DSCF2143-LR-light.jpg")
