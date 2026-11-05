@@ -46,6 +46,7 @@ enum RenderPreviews {
         window.setContentSize(NSSize(width: 720, height: 480))
         settle()
         try capture(window, to: output.appendingPathComponent("metadata-compact-dark.png"))
+        try verifyLoadingOverlay(window, output: output)
         if let browse = window.toolbar?.items.compactMap({ $0.view as? NSButton }).first(where: { $0.title == "Browse" }
         ) {
             browse.performClick(nil)
@@ -82,6 +83,30 @@ enum RenderPreviews {
         try verifyObsoleteFolderScan(fixture: fixture)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures the loading card stays compact and legible over retained pixels in both appearances.
+    private static func verifyLoadingOverlay(_ window: NSWindow, output: URL) throws {
+        guard let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let image = canvas.image
+        else { throw PreviewError.imageDidNotLoad }
+        let filename = "A very long incoming photo filename with shooting details and a sequence number 123456789.jpg"
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            canvas.showLoading(filename: filename)
+            root.layoutSubtreeIfNeeded()
+            guard canvas.image === image, canvas.isLoading,
+                let box = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first,
+                !box.isHidden, box.frame.width <= 360, box.frame.height <= 80,
+                canvas.bounds.contains(box.frame),
+                descendants(box).compactMap({ $0 as? NSTextField }).contains(where: { $0.stringValue == filename }),
+                descendants(box).contains(where: { $0 is NSProgressIndicator && !$0.isHidden })
+            else { throw PreviewError.loadingOverlayFailed }
+            try capture(window, to: output.appendingPathComponent("loading-\(appearance.rawValue).png"))
+        }
+        canvas.image = image
+        guard !canvas.isLoading else { throw PreviewError.loadingOverlayFailed }
     }
 
     /// Ensures real arrow events keep image/metadata selection consistent through reversals and rapid repeats.
@@ -131,16 +156,26 @@ enum RenderPreviews {
                     windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "",
                     isARepeat: false, keyCode: direction > 0 ? 124 : 123)
             else { throw PreviewError.navigationFailed }
+            let retainedImage = canvas.image
+            let retainedScale = canvas.zoom.scale
             canvas.keyDown(with: event)
+            // The main actor has not yielded, so completion cannot race these loading-state assertions.
+            guard canvas.image === retainedImage, canvas.zoom.scale == retainedScale, canvas.isLoading,
+                metadata.string.isEmpty,
+                descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
+                    $0.stringValue == window.title && !$0.isHiddenOrHasHiddenAncestor
+                })
+            else { throw PreviewError.loadingOverlayFailed }
         }
         var index = 0
         for direction in [1, 1, -1, -1] {
+            canvas.zoom.scroll(up: true, currentScale: 1)
             try arrow(direction)
             index = (index + direction + urls.count) % urls.count
             try waitUntil("arrow to \(urls[index].lastPathComponent)") {
-                canvas.image != nil && metadata.string.contains(urls[index].lastPathComponent)
+                canvas.image != nil && !canvas.isLoading && metadata.string.contains(urls[index].lastPathComponent)
             }
-            guard canvas.image?.width == 4085, canvas.image?.height == 6128 else {
+            guard canvas.image?.width == 4085, canvas.image?.height == 6128, canvas.zoom.scale == nil else {
                 throw PreviewError.navigationFailed
             }
         }
@@ -150,13 +185,29 @@ enum RenderPreviews {
             index = (index + direction + urls.count) % urls.count
         }
         try waitUntil("arrow to \(urls[index].lastPathComponent)") {
-            canvas.image != nil && metadata.string.contains(urls[index].lastPathComponent)
+            canvas.image != nil && !canvas.isLoading && metadata.string.contains(urls[index].lastPathComponent)
         }
         guard window.title == urls[index].lastPathComponent else { throw PreviewError.navigationFailed }
         viewer.open(urls[0])
         viewer.open(urls[2])
         try waitUntil("superseded open") { canvas.image != nil && metadata.string.contains("c.jpg") }
         guard window.title == "c.jpg" else { throw PreviewError.navigationFailed }
+        try waitUntil("rediscovery after explicit opens") {
+            descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "3 of 3" }
+        }
+        // Invalidating a cached neighbor must clear the retained pixels on failure and allow another arrow.
+        try Data("corrupt image".utf8).write(to: urls[1])
+        try arrow(-1)
+        try waitUntil("recoverable error") { !canvas.isLoading && canvas.image == nil }
+        guard
+            descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
+                $0.stringValue == "Cannot display this image" && !$0.isHiddenOrHasHiddenAncestor
+            })
+        else { throw PreviewError.loadingOverlayFailed }
+        try arrow(-1)
+        try waitUntil("navigation after error") {
+            !canvas.isLoading && canvas.image != nil && metadata.string.contains("a.jpg")
+        }
         print("Verified arrow wrapping/reversal, rapid selections, and superseded explicit opens with the real photo.")
     }
 
@@ -203,7 +254,7 @@ enum RenderPreviews {
             }
         }
         viewer.open(oldFolder.appendingPathComponent("image0.png"))
-        try waitUntil("initial image") { canvas.image != nil }
+        try waitUntil("initial image") { canvas.image != nil && !canvas.isLoading }
         weak var retainedGrant: FileAccess?
         // AppKit drains autoreleased Objective-C blocks/operation arrays after each real event.
         // Match that lifetime here instead of retaining them in the command-line harness's outer pool.
@@ -215,7 +266,9 @@ enum RenderPreviews {
         // The third checkpoint follows the first metadata read. No sleeps or disk-speed assumptions.
         try waitUntil("scan checkpoint") { gate.state.paused }
         autoreleasepool { viewer.open(newImage) }
-        try waitUntil("new image while scan is blocked") { canvas.image != nil && window.title == "new.png" }
+        try waitUntil("new image while scan is blocked") {
+            canvas.image != nil && !canvas.isLoading && window.title == "new.png"
+        }
         guard retainedGrant != nil else { throw PreviewError.navigationFailed }
         gate.release()
         try waitUntil("scan exit and grant release") { gate.state.finished && retainedGrant == nil }
@@ -284,7 +337,7 @@ enum RenderPreviews {
 
     private enum PreviewError: Error {
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
-        case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed
+        case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed, loadingOverlayFailed
     }
 }
 

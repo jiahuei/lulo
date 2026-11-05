@@ -287,7 +287,6 @@ final class ViewerController: NSWindowController {
         info.setAccessibilityLabel("Show metadata")
         sidebar.isHidden = true
         canvas.displayDefault = session.preferences.display
-        canvas.resetZoom()
         metadata.string = ""
         status.stringValue = ""
         do { _ = try ImageLoader.validateFormat(url) } catch {
@@ -388,17 +387,16 @@ final class ViewerController: NSWindowController {
         prefetchTask?.cancel()
         request += 1
         let currentRequest = request
-        canvas.image = nil
         metadata.string = ""
-        canvas.resetZoom()
         guard let url = session.selectedURL else {
+            canvas.image = nil
             canvas.showMessage(
                 "No matching images", detail: "No images match the current filters.",
                 actionTitle: "Clear Filters", action: { [weak self] in self?.clearFilters() })
             updateStatus()
             return
         }
-        canvas.showMessage("Loading image…", detail: url.lastPathComponent, loading: true)
+        canvas.showLoading(filename: url.lastPathComponent)
         window?.title = url.lastPathComponent
         let access = url == openedURL ? fileAccess : folderAccess
         let generation = session.generation
@@ -413,6 +411,7 @@ final class ViewerController: NSWindowController {
                     return
                 }
                 self.canvas.image = loaded.image
+                self.canvas.resetZoom()
                 self.canvas.setAccessibilityLabel(url.lastPathComponent)
                 self.showMetadata(loaded.details)
                 self.updateStatus()
@@ -421,6 +420,7 @@ final class ViewerController: NSWindowController {
                 return
             } catch {
                 guard !Task.isCancelled, let self, self.request == currentRequest else { return }
+                self.canvas.image = nil
                 self.canvas.showMessage(
                     "Cannot display this image", detail: error.localizedDescription,
                     actionTitle: "Open Another Image…", action: { [weak self] in self?.openPanel() })
@@ -432,7 +432,7 @@ final class ViewerController: NSWindowController {
 
     private func prefetchNeighbor() {
         prefetchTask?.cancel()
-        guard canvas.image != nil, session.visibleEntries.count > 1 else { return }
+        guard canvas.image != nil, !canvas.isLoading, session.visibleEntries.count > 1 else { return }
         var neighbor = session
         neighbor.navigate(navigationDirection)
         guard let url = neighbor.selectedURL, url != session.selectedURL else { return }
