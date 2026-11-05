@@ -116,10 +116,9 @@ enum RenderPreviews {
             throw PreviewError.navigationFailed
         }
         let discovered = try ImageLoader.discover(in: folder)
-        FileHandle.standardError.write(
-            Data(
-                "Navigation fixture discovery count=\(discovered.count), matchesOpened=\(discovered.contains { $0.url == urls[0] })\n"
-                    .utf8))
+        guard discovered.count == 3, discovered.contains(where: { $0.url == urls[0] }) else {
+            throw PreviewError.navigationFailed
+        }
         viewer.useAuthorizedFolder(FileAccess(url: folder))
         try waitUntil("folder discovery") {
             descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "1 of 3" }

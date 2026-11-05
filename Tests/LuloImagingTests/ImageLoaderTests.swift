@@ -123,6 +123,9 @@ func folderDiscoveryAndRecoverableErrors() throws {
             withDestinationURL: folder.appendingPathComponent("valid.png"))
         let entries = try ImageLoader.discover(in: folder)
         #expect(Set(entries.map { $0.url.lastPathComponent }) == ["valid.png", "corrupt.jpg"])
+        #expect(
+            entries.first(where: { $0.url.lastPathComponent == "valid.png" })?.url
+                == folder.appendingPathComponent("valid.png"))
         #expect(throws: ImageLoadError.self) {
             try ImageLoader.decode(at: folder.appendingPathComponent("corrupt.jpg"))
         }

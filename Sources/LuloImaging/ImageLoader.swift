@@ -56,9 +56,14 @@ public enum ImageLoader {
         let urls = try FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .creationDateKey],
             options: [.skipsHiddenFiles])
-        return urls.compactMap { url in
+        return urls.compactMap { discoveredURL in
+            // FileManager may return a resolved path (for example /private/var instead of /var).
+            // Keep entries rooted in the granted folder so the opened image is not added twice.
+            let url = folder.appendingPathComponent(discoveredURL.lastPathComponent)
             guard let format = ImageFormat(url: url),
-                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .creationDateKey]
+                let values = try? discoveredURL.resourceValues(forKeys: [
+                    .isRegularFileKey, .isSymbolicLinkKey, .creationDateKey,
+                ]
                 ),
                 values.isRegularFile == true, values.isSymbolicLink != true
             else { return nil }
