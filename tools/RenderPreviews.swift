@@ -95,6 +95,7 @@ enum RenderPreviews {
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             window.appearance = NSAppearance(named: appearance)
             canvas.showLoading(filename: filename)
+            settle()
             root.layoutSubtreeIfNeeded()
             guard canvas.image === image, canvas.isLoading,
                 let box = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first,
