@@ -103,7 +103,7 @@ enum RenderPreviews {
             }
             guard ready() else {
                 let diagnostic =
-                    "Navigation timeout: \(stage), title=\(window.title), image=\(canvas.image?.width ?? 0)x\(canvas.image?.height ?? 0), metadataCharacters=\(metadata.string.count)\n"
+                    "Navigation timeout: \(stage), title=\(window.title), image=\(canvas.image?.width ?? 0)x\(canvas.image?.height ?? 0), metadataCharacters=\(metadata.string.count), labels=\(descendants(root).compactMap { ($0 as? NSTextField)?.stringValue })\n"
                 FileHandle.standardError.write(Data(diagnostic.utf8))
                 throw PreviewError.navigationFailed
             }
@@ -111,6 +111,15 @@ enum RenderPreviews {
         viewer.open(urls[0])
         try waitUntil("initial photo") { canvas.image != nil && metadata.string.contains("a.jpg") }
         // Only this temporary, harness-owned folder is granted; the real sandbox sheet is tested manually.
+        guard folder.standardizedFileURL == urls[0].deletingLastPathComponent().standardizedFileURL else {
+            FileHandle.standardError.write(Data("Navigation test grant does not match the opened parent.\n".utf8))
+            throw PreviewError.navigationFailed
+        }
+        let discovered = try ImageLoader.discover(in: folder)
+        FileHandle.standardError.write(
+            Data(
+                "Navigation fixture discovery count=\(discovered.count), matchesOpened=\(discovered.contains { $0.url == urls[0] })\n"
+                    .utf8))
         viewer.useAuthorizedFolder(FileAccess(url: folder))
         try waitUntil("folder discovery") {
             descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "1 of 3" }
