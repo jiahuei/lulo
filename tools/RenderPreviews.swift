@@ -98,7 +98,9 @@ enum RenderPreviews {
             throw PreviewError.filterDidNotClear
         }
         guard
-            choices.allSatisfy({ popover.contentView!.bounds.contains($0.convert($0.bounds, to: popover.contentView)) })
+            (choices + [clear]).allSatisfy({
+                popover.contentView!.bounds.contains($0.convert($0.bounds, to: popover.contentView))
+            })
         else { throw PreviewError.missingFilterControls }
         unrated.performClick(nil)
         fiveStars.performClick(nil)

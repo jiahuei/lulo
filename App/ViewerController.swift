@@ -201,7 +201,7 @@ final class ViewerController: NSWindowController {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 16
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 420))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 320))
         stack.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -215,7 +215,7 @@ final class ViewerController: NSWindowController {
         controller.view = container
         browsePopover.contentViewController = controller
         browsePopover.behavior = .transient
-        browsePopover.contentSize = NSSize(width: 380, height: 420)
+        browsePopover.contentSize = NSSize(width: 380, height: 320)
     }
 
     @objc private func showBrowse() {
