@@ -72,14 +72,14 @@ func filteringAndSelection() {
     session.replaceEntries([
         entry("a.jpg", rating: 5), entry("b.png", rating: 5), entry("c.png", rating: 3), entry("d.png"),
     ])
-    session.filter = ImageFilter(rating: 5, format: .png)
+    session.filter = ImageFilter(ratings: [5], formats: [.png])
     session.reconcileSelection()
     #expect(names(session) == ["b.png"])
     #expect(session.selectedURL?.lastPathComponent == "b.png")
-    session.filter.rating = 0
+    session.filter.ratings = [0]
     session.reconcileSelection()
     #expect(names(session) == ["d.png"])
-    session.filter.rating = 4
+    session.filter.ratings = [4]
     session.reconcileSelection()
     #expect(session.visibleEntries.isEmpty)
     #expect(session.selectedURL == nil)
@@ -90,19 +90,59 @@ func filteringAndSelection() {
     #expect(session.selectedURL?.lastPathComponent == "a.jpg")
 }
 
+/// Ensures checked values combine with OR within each group and AND across groups, including aliases and unrated.
+@Test
+func multipleFilterSelections() {
+    var session = ViewingSession()
+    let entries = [
+        entry("a.jpg", rating: 4), entry("b.jpeg", rating: 5), entry("c.png", rating: 4),
+        entry("d.heic", rating: 5), entry("e.heif", rating: 3), entry("f.png"), entry("g.png", rating: 0),
+    ]
+    session.open(entries[1])
+    session.replaceEntries(entries)
+    session.filter = ImageFilter(ratings: [4, 5], formats: [.jpeg, .png])
+    session.reconcileSelection()
+    #expect(names(session) == ["a.jpg", "b.jpeg", "c.png"])
+    #expect(session.selectedURL == entries[1].url)
+    session.navigate(1)
+    #expect(session.selectedURL == entries[2].url)
+    session.navigate(1)
+    #expect(session.selectedURL == entries[0].url)
+
+    session.filter.ratings.remove(4)
+    session.reconcileSelection()
+    #expect(names(session) == ["b.jpeg"])
+    #expect(session.selectedURL == entries[1].url)
+    session.filter.formats.insert(.heif)
+    #expect(names(session) == ["b.jpeg", "d.heic"])
+    session.filter.ratings = [0, 3]
+    #expect(names(session) == ["e.heif", "f.png", "g.png"])
+
+    session.filter.ratings = []
+    #expect(names(session) == entries.map { $0.url.lastPathComponent })
+    session.filter.formats = [.heif]
+    #expect(names(session) == ["d.heic", "e.heif"])
+    session.filter.formats.remove(.heif)
+    #expect(names(session) == entries.map { $0.url.lastPathComponent })
+    session.filter.ratings = [4, 5]
+    #expect(names(session) == ["a.jpg", "b.jpeg", "c.png", "d.heic"])
+    session.filter = ImageFilter()
+    #expect(names(session) == entries.map { $0.url.lastPathComponent })
+}
+
 /// Ensures navigation wraps at both ends, preserves filters/preferences/sidebar, and handles a single match.
 @Test
 func wrappingNavigation() {
     var session = ViewingSession(preferences: Preferences(sort: .name, ascending: false))
     session.open(entry("b.png", rating: 5))
     session.replaceEntries([entry("a.png", rating: 5), entry("b.png", rating: 5), entry("c.jpg", rating: 5)])
-    session.filter = ImageFilter(rating: 5, format: .png)
+    session.filter = ImageFilter(ratings: [5], formats: [.png])
     session.sidebarVisible = true
     session.navigate(-1)
     #expect(session.selectedURL?.lastPathComponent == "a.png")
     session.navigate(1)
     #expect(session.selectedURL?.lastPathComponent == "b.png")
-    #expect(session.filter == ImageFilter(rating: 5, format: .png))
+    #expect(session.filter == ImageFilter(ratings: [5], formats: [.png]))
     #expect(session.sidebarVisible)
     #expect(!session.preferences.ascending)
     session.replaceEntries([entry("b.png", rating: 5)])
@@ -124,7 +164,7 @@ func preferencePersistenceAndSessionReset() throws {
     #expect(session.preferences == saved)
     #expect(session.filter == ImageFilter())
     #expect(!session.sidebarVisible)
-    session.filter = ImageFilter(rating: 5, format: .png)
+    session.filter = ImageFilter(ratings: [4, 5], formats: [.jpeg, .png])
     session.sidebarVisible = true
     let previousGeneration = session.generation
     session.open(entry("new.jpg"))
@@ -158,7 +198,7 @@ func retainedOrderTracksEveryInput() {
     session.replaceEntries([entry("a.jpg", rating: 1), entry("b.jpg", rating: 2)])
     session.updateEntry(entry("a.jpg", rating: 3))
     #expect(names(session) == ["b.jpg", "a.jpg"])
-    session.filter.rating = 2
+    session.filter.ratings = [2]
     session.reconcileSelection()
     #expect(names(session) == ["b.jpg"])
     session.updateEntry(entry("b.jpg", rating: 4))
