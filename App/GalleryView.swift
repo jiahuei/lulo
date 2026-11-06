@@ -106,7 +106,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         _ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath
     ) -> NSCollectionViewItem {
         let item = collectionView.makeItem(withIdentifier: .init("Thumbnail"), for: indexPath)
-        (item as? GalleryItem)?.configure(url: entries[indexPath.item].url)
+        (item as? GalleryItem)?.configure(entry: entries[indexPath.item])
         return item
     }
 
@@ -154,7 +154,7 @@ private final class GalleryCollectionView: NSCollectionView {
 
 @MainActor
 private final class GalleryItem: NSCollectionViewItem {
-    private let preview = NSImageView()
+    private let preview = GalleryThumbnailView()
     private let filename = NSTextField(labelWithString: "")
     private let detail = NSTextField(labelWithString: "")
     private var url: URL?
@@ -193,12 +193,15 @@ private final class GalleryItem: NSCollectionViewItem {
         textField = filename
     }
 
-    func configure(url: URL) {
+    func configure(entry: ImageEntry) {
         _ = view
         cancelThumbnail()
+        let url = entry.url
         self.url = url
+        preview.rating = entry.rating
         filename.stringValue = url.lastPathComponent
-        preview.setAccessibilityLabel(url.lastPathComponent)
+        let ratingDescription = entry.rating.flatMap { (1...5).contains($0) ? ", \($0) of 5 stars" : nil } ?? ""
+        preview.setAccessibilityLabel(url.lastPathComponent + ratingDescription)
         view.toolTip = url.lastPathComponent
         updateSelection()
     }
@@ -234,10 +237,35 @@ private final class GalleryItem: NSCollectionViewItem {
         super.prepareForReuse()
         cancelThumbnail()
         url = nil
+        preview.rating = nil
     }
 
     private func updateSelection() {
         view.layer?.borderWidth = isSelected ? 2 : 0
         view.layer?.borderColor = NSColor.controlAccentColor.cgColor
+    }
+}
+
+@MainActor
+private final class GalleryThumbnailView: NSImageView {
+    var rating: Int? { didSet { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard image != nil, let rating, (1...5).contains(rating), let cell else { return }
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black
+        shadow.shadowBlurRadius = 2
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        let stars = NSAttributedString(
+            string: String(repeating: "★", count: rating),
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                .foregroundColor: NSColor.systemYellow, .shadow: shadow,
+            ])
+        // Anchor to the displayed pixels so letterboxing does not put ratings outside portrait images.
+        let imageRect = cell.imageRect(forBounds: bounds)
+        let y = isFlipped ? imageRect.minY + 3 : imageRect.maxY - stars.size().height - 3
+        stars.draw(at: NSPoint(x: imageRect.minX + 4, y: y))
     }
 }

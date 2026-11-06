@@ -89,13 +89,19 @@ enum RenderPreviews {
         window.close()
     }
 
-    /// Ensures the authorized folder grid loads bounded previews, opens its selection, and survives reuse.
+    /// Ensures the grid preserves ratings, bounded previews, selection, and filters across cell reuse.
     private static func verifyGallery(fixture: URL, output: URL) throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let urls = (1...80).map { folder.appendingPathComponent("photo\($0).png") }
-        for url in urls { try FileManager.default.copyItem(at: fixture, to: url) }
+        for (index, url) in urls.enumerated() {
+            if index < 6 {
+                try makeFixture(at: url, rating: (index + 1) % 6, orientation: index == 1 ? 6 : 1)
+            } else {
+                try FileManager.default.copyItem(at: fixture, to: url)
+            }
+        }
         try Data().write(to: folder.appendingPathComponent("broken.jpg"))
         let viewer = ViewerController()
         guard let window = viewer.window, let root = window.contentView,
@@ -124,6 +130,19 @@ enum RenderPreviews {
             else { throw PreviewError.galleryFailed }
             collection.keyDown(with: event)
         }
+        /// Ensures loaded and reused cells announce their own rating, including zero and missing ratings.
+        func thumbnailsReady() -> Bool {
+            let items = collection.visibleItems().filter { $0.textField?.stringValue != "broken.jpg" }
+            return !items.isEmpty
+                && items.allSatisfy {
+                    guard let name = $0.textField?.stringValue, let preview = $0.imageView,
+                        let image = preview.image
+                    else { return false }
+                    let rating = (1...5).first { name == "photo\($0).png" }
+                    let label = name + (rating.map { ", \($0) of 5 stars" } ?? "")
+                    return image.size.width <= 320 && image.size.height <= 320 && preview.accessibilityLabel() == label
+                }
+        }
         viewer.open(urls[0])
         try waitUntil { !canvas.isLoading && canvas.image != nil && window.attachedSheet == nil }
         viewer.toggleGallery()
@@ -142,6 +161,14 @@ enum RenderPreviews {
         try waitUntil {
             descendants(gallery).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Preview unavailable" }
         }
+        try waitUntil { thumbnailsReady() }
+        // Image-cell geometry must locate the actual pixels, including the rotated portrait fixture.
+        for index in 1...6 {
+            guard let preview = collection.item(at: IndexPath(item: index, section: 0))?.imageView,
+                let image = preview.image, let rect = preview.cell?.imageRect(forBounds: preview.bounds),
+                abs(rect.width / rect.height - image.size.width / image.size.height) < 0.02
+            else { throw PreviewError.galleryFailed }
+        }
         window.appearance = NSAppearance(named: .aqua)
         settle()
         try capture(window, to: output.appendingPathComponent("gallery-light.png"))
@@ -158,16 +185,12 @@ enum RenderPreviews {
         window.appearance = NSAppearance(named: .darkAqua)
         window.setContentSize(NSSize(width: 720, height: 480))
         settle()
+        try waitUntil { thumbnailsReady() }
         try capture(window, to: output.appendingPathComponent("gallery-compact-dark.png"))
         for index in [80, 1, 70, 2] {
             collection.scrollToItems(at: [IndexPath(item: index, section: 0)], scrollPosition: .centeredVertically)
             settle()
-        }
-        try waitUntil {
-            collection.visibleItems().filter { $0.textField?.stringValue != "broken.jpg" }.allSatisfy {
-                $0.imageView?.image != nil && ($0.imageView?.image?.size.width ?? 0) <= 320
-                    && $0.imageView?.accessibilityLabel() == $0.textField?.stringValue
-            }
+            try waitUntil { thumbnailsReady() }
         }
         // The existing filter controls must affect both views, including recovery from no matches.
         guard
@@ -186,10 +209,19 @@ enum RenderPreviews {
                     } == true
             }),
             let rating = descendants(popover.contentView!).compactMap({ $0 as? NSPopUpButton })
-                .first(where: { $0.toolTip == "Filter by exact star rating" })
+                .first(where: { $0.toolTip == "Filter by exact star rating" }),
+            let format = descendants(popover.contentView!).compactMap({ $0 as? NSPopUpButton })
+                .first(where: { $0.toolTip == "Filter by file type" })
         else { throw PreviewError.galleryFailed }
         rating.selectItem(at: 6)
         rating.sendAction(rating.action, to: rating.target)
+        guard collection.numberOfItems(inSection: 0) == 1 else { throw PreviewError.galleryFailed }
+        try waitUntil { thumbnailsReady() }
+        guard collection.item(at: IndexPath(item: 0, section: 0))?.textField?.stringValue == "photo5.png" else {
+            throw PreviewError.galleryFailed
+        }
+        format.selectItem(withTitle: "JPEG")
+        format.sendAction(format.action, to: format.target)
         browse.performClick(nil)
         guard collection.numberOfItems(inSection: 0) == 0,
             let clear = descendants(gallery).compactMap({ $0 as? NSButton }).first(where: {
@@ -203,7 +235,7 @@ enum RenderPreviews {
         try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == fixture.lastPathComponent }
         guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
         print(
-            "Verified gallery permissions, thumbnails, selection, keyboard opening, reuse, filtering, and session reset."
+            "Verified gallery permissions, rated thumbnails, selection, keyboard opening, reuse, filtering, and session reset."
         )
     }
 
@@ -483,7 +515,7 @@ enum RenderPreviews {
         }
     }
 
-    private static func makeFixture(at url: URL) throws {
+    private static func makeFixture(at url: URL, rating: Int? = nil, orientation: Int = 1) throws {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
             let context = CGContext(
                 data: nil, width: 1200, height: 800, bitsPerComponent: 8, bytesPerRow: 4800,
@@ -509,12 +541,20 @@ enum RenderPreviews {
             throw PreviewError.captureFailed
         }
         let properties: [CFString: Any] = [
+            kCGImagePropertyOrientation: orientation,
             kCGImagePropertyExifDictionary: [
                 "DateTimeOriginal": "2026:01:02 03:04:05", "FNumber": 2.8, "FocalLength": 35,
             ],
             kCGImagePropertyTIFFDictionary: ["Make": "Synthetic Camera", "Model": "Preview Fixture", "Artist": "Lulo"],
         ]
-        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        if let rating {
+            let metadata = CGImageMetadataCreateMutable()
+            guard CGImageMetadataSetValueWithPath(metadata, nil, "xmp:Rating" as CFString, String(rating) as CFString)
+            else { throw PreviewError.captureFailed }
+            CGImageDestinationAddImageAndMetadata(destination, image, metadata, properties as CFDictionary)
+        } else {
+            CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        }
         guard CGImageDestinationFinalize(destination) else { throw PreviewError.captureFailed }
     }
 

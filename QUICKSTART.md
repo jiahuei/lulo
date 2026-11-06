@@ -67,7 +67,7 @@ The command compiles the current view/controller with a small preview entry poin
 
 Cached-navigation checks prewarm the real image store and verify both Next and Previous replace the image without presenting a loading overlay, including when the preceding request left an overlay visible. Package tests verify that loading feedback is requested for cache misses, eviction, changed files, and new sessions, but not for hits, canceled queued work, or reused completed prefetches.
 
-Gallery checks use 80 synthetic images and one corrupt file to exercise permission refusal, thumbnail loading, keyboard selection/opening, returning to the selected image, cell reuse during scrolling, filters and recovery, and clearing the gallery on a new explicit open. The harness also saves regular light and compact dark gallery captures.
+Gallery checks use 80 synthetic images and one corrupt file to exercise permission refusal, thumbnail loading, keyboard selection/opening, returning to the selected image, cell reuse during scrolling, embedded one-to-five/zero/missing ratings and their accessibility labels, portrait/landscape overlay geometry, filters and recovery, and clearing the gallery on a new explicit open. The harness also saves regular light and compact dark gallery captures.
 
 This unsandboxed development helper is not bundled with Lulo. View captures establish layout evidence; they do not establish Finder integration, sandbox enforcement, mouse/trackpad behavior, display color fidelity, or VoiceOver behavior. The interactive checklist remains required.
 
