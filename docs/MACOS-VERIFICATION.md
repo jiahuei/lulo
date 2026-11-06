@@ -5,6 +5,7 @@ Automated package tests and an unsigned build do not establish Finder integratio
 Build using QUICKSTART.md, then run a locally signed app with the checked-in sandbox entitlements. An unsigned build or a package test is not proof of sandbox enforcement. Record macOS/Xcode versions, display backing scales, input devices, and actual results when performing these checks.
 
 - [ ] Launch: window fills the available screen without native full screen; image fit is letterboxed and uncropped.
+- [ ] The toolbar shows an Open text button in light/dark appearance and at minimum window size. Clicking it opens the image picker; verify keyboard focus and its VoiceOver label.
 - [ ] Open via Finder and Open: one window is reused, requested image becomes selected, filters clear, sidebar collapses, and saved zoom default is restored. Repeat with the window closed and with a permission sheet open.
 - [ ] Grant the exact containing folder; siblings appear. Decline; the opened image remains usable. Retry from File > Allow Folder Navigation. Choose a different folder; it must not be enumerated as though it were the containing folder.
 - [ ] Switch between authorized folders and rapidly open/navigate images while decoding and scanning. Old results must never replace the new selection; grants must outlive dependent work.

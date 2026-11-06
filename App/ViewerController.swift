@@ -529,9 +529,10 @@ extension ViewerController: NSToolbarDelegate {
         switch identifier.rawValue {
         case "Open":
             item.label = "Open Image"
-            item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Open image")
-            item.target = self
-            item.action = #selector(openPanel)
+            let button = NSButton(title: "Open", target: self, action: #selector(openPanel))
+            button.bezelStyle = .texturedRounded
+            button.toolTip = "Open image"
+            item.view = button
         case "Previous":
             item.label = "Previous Image"
             item.view = previous
