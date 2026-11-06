@@ -8,6 +8,7 @@ These conventions guide the implementation. See `PRODUCT.md` for behavior and ar
 - Keep portable logic independent of AppKit and SwiftUI where that makes it easier to test. Introduce interfaces only when a concrete integration or test needs one.
 - Use native macOS controls, menu commands, keyboard shortcuts, semantic colors, and accessible labels. Verify VoiceOver, focus behavior, light/dark appearance, and window resizing on macOS.
 - Treat viewing as read-only. Do not change original image bytes or metadata as a side effect of opening or displaying a file.
+- Only an explicit, confirmed Move to Trash command may move a source image. Use the native Trash API without a permanent-delete fallback.
 - Respect user-granted file access. Pair successful security-scoped access with release after dependent work finishes; do not assume that opening one file grants access to its parent directory.
 - Use Image I/O for supported image decoding and metadata when appropriate. Preserve orientation, aspect ratio, transparency, and color profiles, and bound decoded-image memory.
 - Surface missing, unsupported, unreadable, and corrupt files as recoverable errors. Do not log private image paths or metadata unnecessarily.

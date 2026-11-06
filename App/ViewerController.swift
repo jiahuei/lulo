@@ -18,10 +18,14 @@ final class ViewerController: NSWindowController {
     private let browse = NSButton()
     private let previous = NSButton()
     private let next = NSButton()
+    private let trash = NSButton()
     private let browsePopover = NSPopover()
     private let filterSummary = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
     typealias DiscoverImages = @Sendable (URL, @Sendable () -> Bool) throws -> [ImageEntry]
+    typealias MoveToTrash = @Sendable (URL, FileAccess) async throws -> Void
+    private let moveToTrash: MoveToTrash
+    private var trashInProgress = false
     private let discoverImages: DiscoverImages
     private let worker = OperationQueue()
     private var fileAccess: FileAccess?
@@ -34,7 +38,11 @@ final class ViewerController: NSWindowController {
     private var request = 0
     private var openedURL: URL?
 
-    init(discoverImages: @escaping DiscoverImages = { try ImageLoader.discover(in: $0, isCancelled: $1) }) {
+    init(
+        discoverImages: @escaping DiscoverImages = { try ImageLoader.discover(in: $0, isCancelled: $1) },
+        moveToTrash: @escaping MoveToTrash = { _ = try await ImageTrash().move(at: $0, access: $1) }
+    ) {
+        self.moveToTrash = moveToTrash
         self.discoverImages = discoverImages
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
@@ -85,6 +93,7 @@ final class ViewerController: NSWindowController {
         configureButton(next, title: "Next image", symbol: "chevron.right", action: #selector(nextImage))
         configureButton(info, title: "Show metadata", symbol: "sidebar.right", action: #selector(toggleSidebar))
         info.setButtonType(.toggle)
+        configureButton(trash, title: "Move to Trash", symbol: "trash", action: #selector(trashCurrentImage))
         configureButton(
             browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease", action: #selector(showBrowse))
         browse.title = "Sort & Filter"
@@ -152,7 +161,7 @@ final class ViewerController: NSWindowController {
         canvas.displayDefault = session.preferences.display
         canvas.resetZoom()
         canvas.showMessage(
-            "Open an image", detail: "View JPEG, PNG, and HEIF images. Your originals stay unchanged.",
+            "Open an image", detail: "View JPEG, PNG, and HEIF images.",
             actionTitle: "Open Image…", action: { [weak self] in self?.openPanel() })
         updateStatus()
         window.makeFirstResponder(canvas)
@@ -257,6 +266,74 @@ final class ViewerController: NSWindowController {
         metadata.scrollToBeginningOfDocument(nil)
     }
 
+    var canTrashCurrentImage: Bool {
+        session.selectedURL != nil && canvas.image != nil && !canvas.isLoading && !trashInProgress
+            && window?.isVisible == true && window?.attachedSheet == nil
+    }
+
+    @objc func trashCurrentImage() {
+        guard canTrashCurrentImage, let window, let url = session.selectedURL,
+            let access = url == openedURL ? fileAccess : folderAccess
+        else { return }
+        let generation = session.generation
+        let alert = NSAlert()
+        alert.messageText = "Move “\(url.lastPathComponent)” to Trash?"
+        alert.informativeText = "You can recover this image from the Trash in Finder."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Move to Trash")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            defer { self.updateStatus() }
+            guard response == .alertSecondButtonReturn,
+                self.session.generation == generation, self.session.selectedURL == url
+            else { return }
+            self.trashImage(at: url, access: access, generation: generation)
+        }
+    }
+
+    private func trashImage(at url: URL, access: FileAccess, generation: Int) {
+        trashInProgress = true
+        prefetchTask?.cancel()
+        updateStatus()
+        let move = moveToTrash
+        Task { [weak self] in
+            let result: Result<Void, Error>
+            do {
+                try await move(url, access)
+                result = .success(())
+            } catch {
+                result = .failure(error)
+            }
+            guard let self else { return }
+            self.trashInProgress = false
+            guard self.session.generation == generation else {
+                self.updateStatus()
+                return
+            }
+            switch result {
+            case .success:
+                // A scan started before the move completed must not reintroduce the removed entry.
+                self.worker.cancelAllOperations()
+                let wasSelected = self.session.selectedURL == url
+                self.session.removeEntry(at: url)
+                if wasSelected {
+                    self.canvas.image = nil
+                    self.loadSelection()
+                }
+                self.discoverFolder()
+            case .failure(let error):
+                let alert = NSAlert()
+                alert.messageText = "Could not move “\(url.lastPathComponent)” to Trash"
+                alert.informativeText = error.localizedDescription
+                if let window = self.window {
+                    alert.beginSheetModal(for: window) { [weak self] _ in self?.updateStatus() }
+                }
+            }
+            self.updateStatus()
+        }
+    }
+
     @objc func openPanel() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
@@ -328,6 +405,7 @@ final class ViewerController: NSWindowController {
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }
             if self.folderPanel === panel { self.folderPanel = nil }
+            defer { self.updateStatus() }
             guard self.session.generation == generation, response == .OK, let url = panel.url else { return }
             self.useAuthorizedFolder(FileAccess(url: url))
         }
@@ -391,9 +469,16 @@ final class ViewerController: NSWindowController {
         metadata.string = ""
         guard let url = session.selectedURL else {
             canvas.image = nil
-            canvas.showMessage(
-                "No matching images", detail: "No images match the current filters.",
-                actionTitle: "Clear Filters", action: { [weak self] in self?.clearFilters() })
+            window?.title = "Lulo"
+            if session.entries.isEmpty {
+                canvas.showMessage(
+                    "No images remaining", detail: "Open another image to continue.",
+                    actionTitle: "Open Image…", action: { [weak self] in self?.openPanel() })
+            } else {
+                canvas.showMessage(
+                    "No matching images", detail: "No images match the current filters.",
+                    actionTitle: "Clear Filters", action: { [weak self] in self?.clearFilters() })
+            }
             updateStatus()
             return
         }
@@ -457,6 +542,7 @@ final class ViewerController: NSWindowController {
         }
         previous.isEnabled = !entries.isEmpty
         next.isEnabled = !entries.isEmpty
+        trash.isEnabled = canTrashCurrentImage
         var filters: [String] = []
         if let rating = session.filter.rating { filters.append(rating == 0 ? "Unrated / 0 Stars" : "\(rating) Stars") }
         if let format = session.filter.format { filters.append(format.rawValue) }
@@ -513,7 +599,7 @@ extension ViewerController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .init("Open"), .init("Previous"), .init("Next"), .flexibleSpace, .init("Display"), .init("Browse"),
-            .init("Metadata"),
+            .init("Metadata"), .init("Trash"),
         ]
     }
 
@@ -544,6 +630,9 @@ extension ViewerController: NSToolbarDelegate {
         case "Browse":
             item.label = "Sort & Filter"
             item.view = browse
+        case "Trash":
+            item.label = "Move to Trash"
+            item.view = trash
         case "Metadata":
             item.label = "Metadata"
             item.view = info

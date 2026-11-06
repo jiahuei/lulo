@@ -11,7 +11,7 @@ Lulo is a native macOS 14+ image viewer. The app uses AppKit and a local Swift p
 - `README.md`: project purpose and current status.
 - `QUICKSTART.md`: available development checks.
 - `docs/CONVENTIONS.md`: Swift and macOS development conventions.
-- `App/` and `Lulo.xcodeproj`: AppKit application, read-only sandbox entitlements, and shared Lulo scheme.
+- `App/` and `Lulo.xcodeproj`: AppKit application, user-selected read/write sandbox entitlements, and shared Lulo scheme.
 - `Sources/LuloCore` and `Tests/LuloCoreTests`: portable preferences, ordering, selection, and zoom.
 - `Sources/LuloImaging` and `Tests/LuloImagingTests`: macOS Image I/O, metadata, and file access.
 - Read `docs/CONVENTIONS.md` and `docs/PRODUCT.md` before changing application code.
@@ -248,7 +248,7 @@ Before working on the app or its domain code, read and follow `docs/CONVENTIONS.
 
 ## Image Viewer Invariants
 
-- Viewing never modifies, moves, renames, or deletes source images. Keep file access read-only.
+- Viewing never modifies, moves, renames, or deletes source images. The explicit, confirmed Move to Trash command is the only allowed mutation; it moves one selected image to macOS Trash without permanent deletion. Keep read/write access limited to user-selected files and folders.
 - Access only user-authorized files and folders. Opening a single file does not imply permission to browse its siblings; request folder access when needed.
 - Pair successful security-scoped access with release after all dependent work finishes. Add persisted bookmarks only when persistent access is part of the product scope.
 - Decode off the main actor, bound decoded-image memory, and prevent stale asynchronous results from replacing the current selection.

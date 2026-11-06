@@ -181,3 +181,52 @@ func retainedOrderTracksEveryInput() {
     session.open(nil)
     #expect(session.visibleEntries.isEmpty)
 }
+
+/// Ensures successful trash removal selects the next filtered/sorted image, wraps, and preserves preferences.
+@Test(arguments: [true, false])
+func removalPreservesNavigation(_ ascending: Bool) {
+    var session = ViewingSession(preferences: Preferences(display: .actualSize, ascending: ascending))
+    let first = entry("a.png", rating: 5)
+    let middle = entry("b.png", rating: 5)
+    let last = entry("c.png", rating: 5)
+    let excluded = entry("d.jpg", rating: 1)
+    session.open(middle)
+    session.replaceEntries([first, middle, last, excluded])
+    session.filter = ImageFilter(rating: 5, format: .png)
+    session.sidebarVisible = true
+    let generation = session.generation
+    session.removeEntry(at: middle.url)
+    #expect(session.selectedURL == (ascending ? last.url : first.url))
+    #expect(names(session) == (ascending ? ["a.png", "c.png"] : ["c.png", "a.png"]))
+    session.removeEntry(at: session.selectedURL!)
+    #expect(session.selectedURL == (ascending ? first.url : last.url))
+    session.removeEntry(at: session.selectedURL!)
+    #expect(session.selectedURL == nil)
+    #expect(session.visibleEntries.isEmpty)
+    #expect(session.entries == [excluded])
+    #expect(session.filter == ImageFilter(rating: 5, format: .png))
+    #expect(session.preferences == Preferences(display: .actualSize, ascending: ascending))
+    #expect(session.sidebarVisible)
+    #expect(session.generation == generation)
+    session.filter = ImageFilter()
+    session.reconcileSelection()
+    #expect(session.selectedURL == excluded.url)
+    session.removeEntry(at: excluded.url)
+    #expect(session.entries.isEmpty)
+    #expect(session.selectedURL == nil)
+}
+
+/// Ensures completing a trash operation after navigation does not replace a still-valid selection.
+@Test
+func removalRetainsAnotherSelection() {
+    let first = entry("a.png")
+    let second = entry("b.png")
+    var session = ViewingSession()
+    session.open(second)
+    session.replaceEntries([first, second])
+    session.removeEntry(at: first.url)
+    #expect(session.selectedURL == second.url)
+    session.removeEntry(at: first.url)
+    #expect(session.entries == [second])
+    #expect(session.selectedURL == second.url)
+}
