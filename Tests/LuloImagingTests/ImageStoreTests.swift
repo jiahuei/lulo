@@ -31,17 +31,36 @@ func imageStoreReuseAndBudget() async throws {
     let evicted = try await store.load(at: urls[1], generation: 1)
     #expect(evicted.image !== b.image)
     #expect(await store.cachedBytes <= cost * 2)
-    let countLimited = ImageStore(byteLimit: cost * 4)
-    let oldest = try await countLimited.load(at: urls[0], generation: 1)
-    for url in urls.dropFirst() { _ = try await countLimited.load(at: url, generation: 1) }
-    #expect(await countLimited.cachedBytes == cost * 3)
-    let replaced = try await countLimited.load(at: urls[0], generation: 1)
-    #expect(replaced.image !== oldest.image)
     let uncached = ImageStore(byteLimit: cost - 1)
     let first = try await uncached.load(at: urls[0], generation: 1)
     let second = try await uncached.load(at: urls[0], generation: 1)
     #expect(first.image !== second.image)
     #expect(await uncached.cachedBytes == 0)
+}
+
+/// Ensures the production full-resolution cache defaults to 1 GiB and evicts the least recent of ten images.
+@Test
+func imageStoreTenImageLimit() async throws {
+    let folder = try cacheTestFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let urls = (0..<11).map { folder.appendingPathComponent("image\($0).png") }
+    for url in urls { try fixture(at: url) }
+    let store = ImageStore()
+    #expect(store.byteLimit == 1024 * 1024 * 1024)
+    let first = try await store.load(at: urls[0], generation: 1)
+    let second = try await store.load(at: urls[1], generation: 1)
+    for url in urls[2..<10] { _ = try await store.load(at: url, generation: 1) }
+    let cost = first.image.bytesPerRow * first.image.height
+    #expect(await store.cachedBytes == cost * 10)
+    let reused = try await store.load(at: urls[0], generation: 1)
+    #expect(reused.image === first.image)
+    _ = try await store.load(at: urls[10], generation: 1)
+    #expect(await store.cachedBytes == cost * 10)
+    let retained = try await store.load(at: urls[0], generation: 1)
+    #expect(retained.image === first.image)
+    let evicted = try await store.load(at: urls[1], generation: 1)
+    #expect(evicted.image !== second.image)
+    #expect(await store.cachedBytes == cost * 10)
 }
 
 /// Ensures changed/deleted source files and explicit new sessions never return stale cached pixels or metadata.

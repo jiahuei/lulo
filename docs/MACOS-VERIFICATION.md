@@ -21,6 +21,7 @@ Build using QUICKSTART.md, then run a locally signed app with the checked-in san
 - [ ] Test VoiceOver labels, keyboard focus, menu shortcuts, selectable metadata, light/dark appearance, minimum window size, and sidebar scrolling with lengthy comments/paths.
 - [ ] Compare hashes of all input images before and after viewing. Confirm no image, sidecar, or catalog files are created or modified.
 - [ ] Exercise a near-limit image and an image over 64 megapixels, then continue navigating. Measure resident memory during repeated rapid selections; distinguish decode working memory from retained image data.
+- [ ] Revisit images and scroll back through the gallery to verify cache reuse. Full-resolution retention is capped at 1 GiB or ten images, and thumbnails have a separate 1 GiB cap without a count limit. Replace/delete a file while viewing other thumbnails, then revisit it; check refreshed pixels or a recoverable error. Account for visible images, active decoding, metadata, and rendering buffers separately from the two cache budgets.
 
 - [ ] Test navigation through a folder of large photos: paced steps, held arrows, direction reversals, and a new explicit open during loading. Confirm the newest selection wins and unchanged neighbors are reused without changing 100% detail or metadata. Replace/delete a viewed file externally and revisit it; verify updated pixels/metadata or a recoverable error.
 

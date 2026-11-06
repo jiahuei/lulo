@@ -71,7 +71,7 @@ This unsandboxed development helper is not bundled with Lulo. View captures esta
 
 ## Navigation performance and photo regression
 
-`Tests/LuloImagingTests/Fixtures/DSCF2143-LR-light.jpg` is the owner's explicitly approved public fixture: an 837 KB, 4085 × 6128 JPEG with its shooting and GPS metadata intact. The fixture README records permission. Package tests assert exposure, ISO, focal lengths, camera/lens, capture timezone, GPS coordinates, altitude, original dimensions, and unchanged bytes. Cache tests cover reuse, byte limits/eviction, file changes/deletion, new sessions, cancelled queued requests, and a cancelled prefetch whose completed decode is reused.
+`Tests/LuloImagingTests/Fixtures/DSCF2143-LR-light.jpg` is the owner's explicitly approved public fixture: an 837 KB, 4085 × 6128 JPEG with its shooting and GPS metadata intact. The fixture README records permission. Package tests assert exposure, ISO, focal lengths, camera/lens, capture timezone, GPS coordinates, altitude, original dimensions, and unchanged bytes. Cache tests cover independent 1 GiB defaults, the full-resolution ten-image cap, thumbnail reuse beyond ten images, byte limits/eviction, file changes/deletion, new viewer sessions, cancelled queued requests, and completed decodes reused after cancellation. Small synthetic fixtures and injected byte budgets exercise eviction without allocating gigabytes during tests.
 
 After `bash tools/package-app.sh`, run:
 
