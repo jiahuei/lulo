@@ -17,7 +17,7 @@ func thumbnailCacheDefaultsAndReuse() async throws {
     defer { try? FileManager.default.removeItem(at: folder) }
     let loader = ThumbnailLoader()
     let access = FileAccess(url: folder)
-    #expect(loader.byteLimit == 1024 * 1024 * 1024)
+    #expect(await loader.byteLimit == 1024 * 1024 * 1024)
     var originals: [(URL, LoadedThumbnail)] = []
     for index in 0..<12 {
         let url = folder.appendingPathComponent("image\(index).png")

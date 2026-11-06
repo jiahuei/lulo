@@ -46,7 +46,7 @@ func imageStoreTenImageLimit() async throws {
     let urls = (0..<11).map { folder.appendingPathComponent("image\($0).png") }
     for url in urls { try fixture(at: url) }
     let store = ImageStore()
-    #expect(store.byteLimit == 1024 * 1024 * 1024)
+    #expect(await store.byteLimit == 1024 * 1024 * 1024)
     let first = try await store.load(at: urls[0], generation: 1)
     let second = try await store.load(at: urls[1], generation: 1)
     for url in urls[2..<10] { _ = try await store.load(at: url, generation: 1) }
