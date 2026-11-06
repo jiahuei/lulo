@@ -2,7 +2,7 @@ import AppKit
 
 @main
 @MainActor
-final class LuloApp: NSObject, NSApplicationDelegate {
+final class LuloApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var viewer: ViewerController?
 
     static func main() {
@@ -50,6 +50,7 @@ final class LuloApp: NSObject, NSApplicationDelegate {
         file.submenu = NSMenu(title: "File")
         file.submenu?.addItem(withTitle: "Open…", action: #selector(openImage), keyEquivalent: "o")
         file.submenu?.addItem(withTitle: "Allow Folder Navigation…", action: #selector(allowFolder), keyEquivalent: "")
+        file.submenu?.addItem(withTitle: "Move to Trash…", action: #selector(trashImage), keyEquivalent: "\u{8}")
         file.submenu?.addItem(
             withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         menu.addItem(file)
@@ -66,6 +67,13 @@ final class LuloApp: NSObject, NSApplicationDelegate {
         showViewer()
         viewer?.openPanel()
     }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(trashImage) { return viewer?.canTrashCurrentImage == true }
+        return true
+    }
+
+    @objc private func trashImage() { viewer?.trashCurrentImage() }
     @objc private func allowFolder() { viewer?.allowFolderNavigation() }
     @objc private func previousImage() { viewer?.previousImage() }
     @objc private func nextImage() { viewer?.nextImage() }

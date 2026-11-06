@@ -151,6 +151,18 @@ public struct ViewingSession: Sendable {
         reconcileSelection()
     }
 
+    /// Removes an entry only after its file was successfully trashed, keeping the next visible image selected.
+    public mutating func removeEntry(at url: URL) {
+        let removedIndex = visibleEntries.firstIndex(where: { $0.url == url })
+        let wasSelected = selectedURL == url
+        entries.removeAll { $0.url == url }
+        rebuildVisibleEntries()
+        if wasSelected, let removedIndex, !visibleEntries.isEmpty {
+            selectedURL = visibleEntries[removedIndex % visibleEntries.count].url
+        }
+        reconcileSelection()
+    }
+
     public mutating func reconcileSelection() {
         let visible = visibleEntries
         if !visible.contains(where: { $0.url == selectedURL }) { selectedURL = visible.first?.url }

@@ -76,8 +76,99 @@ enum RenderPreviews {
         }
         try verifyArrowNavigation(viewer)
         try verifyObsoleteFolderScan(fixture: fixture)
+        try verifyTrashAction(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures Trash confirmation, cancellation, failure, navigation, and stale completion use the captured image.
+    private static func verifyTrashAction(fixture: URL, output: URL) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let folder = root.appendingPathComponent("images")
+        let discarded = root.appendingPathComponent("discarded")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: discarded, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = folder.appendingPathComponent("a.png")
+        let second = folder.appendingPathComponent("b.png")
+        let replacement = root.appendingPathComponent("new.png")
+        for url in [first, second, replacement] { try FileManager.default.copyItem(at: fixture, to: url) }
+        let operation = TrashPreviewOperation(destination: discarded)
+        let viewer = ViewerController(moveToTrash: { try await operation.move($0, access: $1) })
+        guard let window = viewer.window, let content = window.contentView,
+            let canvas = descendants(content).compactMap({ $0 as? ImageCanvas }).first,
+            let trash = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Trash" })?.view as? NSButton
+        else { throw PreviewError.trashFailed }
+        defer { window.close() }
+        func waitUntil(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                settle()
+            }
+            guard ready() else { throw PreviewError.trashFailed }
+        }
+        func clickSheetButton(_ title: String) throws {
+            guard let sheet = window.attachedSheet, let content = sheet.contentView,
+                let button = descendants(content).compactMap({ $0 as? NSButton }).first(where: { $0.title == title })
+            else { throw PreviewError.trashFailed }
+            button.performClick(nil)
+            settle()
+        }
+        func confirmTrash() throws {
+            viewer.trashCurrentImage()
+            try clickSheetButton("Move to Trash")
+            try waitUntil { operation.pendingURL != nil }
+            guard !viewer.canTrashCurrentImage else { throw PreviewError.trashFailed }
+        }
+        guard !viewer.canTrashCurrentImage, !trash.isEnabled else { throw PreviewError.trashFailed }
+        viewer.open(first)
+        guard !viewer.canTrashCurrentImage else { throw PreviewError.trashFailed }
+        try waitUntil { viewer.canTrashCurrentImage }
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        try waitUntil {
+            descendants(content).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "1 of 2" }
+        }
+        trash.performClick(nil)
+        settle()
+        guard let sheet = window.attachedSheet else { throw PreviewError.trashFailed }
+        try capture(sheet, to: output.appendingPathComponent("trash-confirmation.png"))
+        try clickSheetButton("Cancel")
+        guard operation.pendingURL == nil, viewer.canTrashCurrentImage,
+            FileManager.default.fileExists(atPath: first.path)
+        else { throw PreviewError.trashFailed }
+
+        try confirmTrash()
+        operation.fail()
+        try waitUntil { window.attachedSheet != nil }
+        try clickSheetButton("OK")
+        guard window.title == "a.png", canvas.image != nil, FileManager.default.fileExists(atPath: first.path) else {
+            throw PreviewError.trashFailed
+        }
+        try confirmTrash()
+        try operation.succeed()
+        try waitUntil { window.title == "b.png" && viewer.canTrashCurrentImage }
+        guard !FileManager.default.fileExists(atPath: first.path), FileManager.default.fileExists(atPath: second.path)
+        else { throw PreviewError.trashFailed }
+
+        try confirmTrash()
+        viewer.open(replacement)
+        try waitUntil { !canvas.isLoading && window.attachedSheet == nil }
+        guard operation.pendingURL == second, window.title == "new.png" else { throw PreviewError.trashFailed }
+        try operation.succeed()
+        try waitUntil { viewer.canTrashCurrentImage }
+        guard window.title == "new.png", FileManager.default.fileExists(atPath: replacement.path) else {
+            throw PreviewError.trashFailed
+        }
+        try confirmTrash()
+        try operation.succeed()
+        try waitUntil {
+            descendants(content).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "No images remaining" }
+        }
+        guard !viewer.canTrashCurrentImage, !trash.isEnabled, canvas.image == nil else {
+            throw PreviewError.trashFailed
+        }
+        print("Verified Trash confirmation, cancellation, failure, next selection, last image, and stale completion.")
     }
 
     /// Ensures real checkbox actions retain multiple choices, intersect groups, and recover after deselection.
@@ -383,7 +474,7 @@ enum RenderPreviews {
     }
 
     private enum PreviewError: Error {
-        case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
+        case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, trashFailed
         case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed, loadingOverlayFailed
     }
 }
@@ -429,5 +520,37 @@ private final class ScanCheckpointGate: @unchecked Sendable {
         condition.lock()
         defer { condition.unlock() }
         finished = true
+    }
+}
+
+/// Holds an operation at its asynchronous boundary; only owned synthetic files are moved within the test directory.
+@MainActor
+private final class TrashPreviewOperation {
+    private let destination: URL
+    private var continuation: CheckedContinuation<Void, Error>?
+    private(set) var pendingURL: URL?
+
+    init(destination: URL) { self.destination = destination }
+
+    func move(_ url: URL, access: FileAccess) async throws {
+        defer { withExtendedLifetime(access) {} }
+        try await withCheckedThrowingContinuation { continuation in
+            self.pendingURL = url
+            self.continuation = continuation
+        }
+    }
+
+    func fail() {
+        pendingURL = nil
+        continuation?.resume(throwing: CocoaError(.fileWriteNoPermission))
+        continuation = nil
+    }
+
+    func succeed() throws {
+        guard let url = pendingURL else { throw CocoaError(.fileNoSuchFile) }
+        try FileManager.default.moveItem(at: url, to: destination.appendingPathComponent(url.lastPathComponent))
+        pendingURL = nil
+        continuation?.resume()
+        continuation = nil
     }
 }

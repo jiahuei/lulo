@@ -1,6 +1,6 @@
 # Initial viewer behavior
 
-Lulo is a read-only, native macOS 14+ image viewer implementing [issue #2](https://github.com/jiahuei/lulo/issues/2). It has no editing, catalog, account, analytics, network, or cloud functionality. Metadata and ratings are embedded-image data only; sidecars and RAW decoding are outside this version.
+Lulo is a native macOS 14+ image viewer implementing [issue #2](https://github.com/jiahuei/lulo/issues/2). It has no editing, catalog, account, analytics, network, or cloud functionality. Metadata and ratings are embedded-image data only; sidecars and RAW decoding are outside this version.
 
 ## Opening and navigation
 
@@ -10,9 +10,17 @@ JPEG (including JPG), PNG, and HEIF (including HEIC) are supported. A direct RAW
 
 Left/right arrows on the image, toolbar navigation buttons, and Command-[ / Command-] navigate with wrapping. Use the menu shortcuts when a filter or metadata text control has keyboard focus. Missing, corrupt, unsupported, and inaccessible files produce recoverable messages.
 
+## Moving images to Trash
+
+Move to Trash is available from the toolbar and File menu (Command-Delete) for the currently displayed image. A confirmation names the image, with Cancel as the default. The action is unavailable while loading, during another Trash operation, while a sheet is open, or without a displayed image. It moves one image to the macOS Trash; there is no permanent-delete fallback, bulk action, or in-app undo. Recover trashed images in Finder.
+
+After success, the next image in the current filtered/sorted order becomes selected, wrapping at the end. If no images remain, the viewer offers Open Image; if filters exclude the remaining entries, Clear Filters remains available. A failed operation reports an error and retains the current selection. Navigation and new opens remain usable during the background operation, whose completion cannot replace another session. Obsolete folder scans cannot reintroduce a trashed entry.
+
+The sandbox grants read/write access only to user-selected files and folders to support this explicit action. Opening and viewing never write image contents or metadata. The Trash operation retains its access grant through completion and rejects directories and symbolic links, including those with image extensions.
+
 ## Interface
 
-The image occupies the main workspace. A native unified toolbar contains a text button labeled Open, Previous/Next, the saved zoom default, Sort & Filter, and Metadata. System fonts and semantic colors follow macOS light/dark appearance. The window title identifies the selected file.
+The image occupies the main workspace. A native unified toolbar contains a text button labeled Open, Previous/Next, the saved zoom default, Sort & Filter, Metadata, and Move to Trash. System fonts and semantic colors follow macOS light/dark appearance. The window title identifies the selected file.
 
 Sort & Filter opens a transient popover with labeled sort and direction controls plus rating and file-type checkboxes. Changes apply immediately. The Sort & Filter button reports the number of active filters, and the status bar names those filters beside the image position. Clear Filters is available both in Sort & Filter and in the no-matches state. New explicit opens dismiss Sort & Filter and return keyboard focus to the image.
 
