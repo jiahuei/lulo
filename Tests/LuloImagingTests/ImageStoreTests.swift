@@ -88,6 +88,41 @@ func imageStoreInvalidationAndRecovery() async throws {
     #expect(recovered.details.entry.rating == 3)
 }
 
+/// Ensures loading feedback is requested for misses and invalidation, but never for cached images.
+@Test
+func imageStoreCacheMissNotifications() async throws {
+    let folder = try cacheTestFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let first = folder.appendingPathComponent("a.png")
+    let second = folder.appendingPathComponent("b.png")
+    for url in [first, second] { try fixture(at: url) }
+    let image = try ImageLoader.decode(at: first)
+    let store = ImageStore(byteLimit: image.bytesPerRow * image.height)
+    let events = AsyncStream<URL>.makeStream()
+    func load(_ url: URL, generation: Int = 1) async throws {
+        _ = try await store.load(at: url, generation: generation) {
+            events.continuation.yield(url)
+        }
+    }
+    try await load(first)
+    try await load(first)
+    try await load(second)
+    try await load(first)
+    try fixture(at: first, rating: 5)
+    try FileManager.default.setAttributes(
+        [.modificationDate: Date(timeIntervalSince1970: 100)], ofItemAtPath: first.path)
+    try await load(first)
+    try await load(first, generation: 2)
+    try FileManager.default.removeItem(at: first)
+    await #expect(throws: ImageLoadError.self) { try await load(first, generation: 2) }
+    try Data().write(to: first)
+    await #expect(throws: ImageLoadError.self) { try await load(first, generation: 2) }
+    events.continuation.finish()
+    var misses: [URL] = []
+    for await url in events.stream { misses.append(url) }
+    #expect(misses == [first, second, first, first, first, first])
+}
+
 /// Ensures cancelled queued work neither decodes a file nor clears a newer session's cache.
 @Test
 func cancelledImageLoadPreservesCurrentCache() async throws {
@@ -100,7 +135,9 @@ func cancelledImageLoadPreservesCurrentCache() async throws {
     let gate = AsyncStream<Void>.makeStream()
     let task = Task {
         for await _ in gate.stream { break }
-        return try await store.load(at: folder.appendingPathComponent("missing.png"), generation: 1)
+        return try await store.load(at: folder.appendingPathComponent("missing.png"), generation: 1) {
+            Issue.record("Cancelled queued requests must not request loading feedback.")
+        }
     }
     task.cancel()
     gate.continuation.finish()
@@ -124,6 +161,8 @@ func completedCancelledDecodeIsReusable() async throws {
     let prefetch = Task { try await store.load(at: url, generation: 1) }
     await #expect(throws: CancellationError.self) { try await prefetch.value }
     // A second decode would cancel this task too. A cache hit must return the same immutable pixels.
-    let selected = try await store.load(at: url, generation: 1)
+    let selected = try await store.load(at: url, generation: 1) {
+        Issue.record("Reusing a completed prefetch must not request loading feedback.")
+    }
     #expect(selected.image === loaded.image)
 }

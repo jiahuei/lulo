@@ -25,7 +25,7 @@ final class ImageCanvas: NSView {
     var navigate: ((Int) -> Void)?
     private var offset = CGPoint.zero
     private var dragOrigin: CGPoint?
-    var isLoading: Bool { !loadingBox.isHidden }
+    private(set) var isLoading = false
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -107,17 +107,24 @@ final class ImageCanvas: NSView {
         setAccessibilityElement(false)
     }
 
-    func showLoading(filename: String) {
+    func beginLoading() {
+        hideLoading()
+        isLoading = true
         messageStack.isHidden = true
+        // A cache lookup is pending, but only a miss needs visible loading feedback.
+        setAccessibilityElement(false)
+    }
+
+    func showLoading(filename: String) {
+        beginLoading()
         loadingFilename.stringValue = filename
         loadingFilename.toolTip = filename
         loadingBox.isHidden = false
         progress.startAnimation(nil)
-        // Expose the loading controls instead of describing the retained image as the new selection.
-        setAccessibilityElement(false)
     }
 
     private func hideLoading() {
+        isLoading = false
         progress.stopAnimation(nil)
         loadingBox.isHidden = true
     }

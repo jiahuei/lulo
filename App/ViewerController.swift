@@ -30,14 +30,18 @@ final class ViewerController: NSWindowController {
     private var fileAccess: FileAccess?
     private var folderAccess: FileAccess?
     private var folderPanel: NSOpenPanel?
-    private let imageStore = ImageStore()
+    private let imageStore: ImageStore
     private var loadTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
     private var navigationDirection = 1
     private var request = 0
     private var openedURL: URL?
 
-    init(discoverImages: @escaping DiscoverImages = { try ImageLoader.discover(in: $0, isCancelled: $1) }) {
+    init(
+        imageStore: ImageStore = ImageStore(),
+        discoverImages: @escaping DiscoverImages = { try ImageLoader.discover(in: $0, isCancelled: $1) }
+    ) {
+        self.imageStore = imageStore
         self.discoverImages = discoverImages
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
@@ -436,14 +440,19 @@ final class ViewerController: NSWindowController {
             updateStatus()
             return
         }
-        canvas.showLoading(filename: url.lastPathComponent)
+        canvas.beginLoading()
         window?.title = url.lastPathComponent
         let access = url == openedURL ? fileAccess : folderAccess
         let generation = session.generation
         let store = imageStore
         loadTask = Task { [weak self] in
             do {
-                let loaded = try await store.load(at: url, generation: generation, access: access)
+                let loaded = try await store.load(at: url, generation: generation, access: access) { [weak self] in
+                    _ = Task { @MainActor [weak self] in
+                        guard let self, self.request == currentRequest, self.canvas.isLoading else { return }
+                        self.canvas.showLoading(filename: url.lastPathComponent)
+                    }
+                }
                 guard !Task.isCancelled, let self, self.request == currentRequest else { return }
                 self.session.updateEntry(loaded.details.entry)
                 guard self.session.selectedURL == url else {

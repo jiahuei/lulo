@@ -30,7 +30,10 @@ public actor ImageStore {
         self.decode = decode
     }
 
-    public func load(at url: URL, generation: Int, access: FileAccess? = nil) throws -> LoadedImage {
+    /// Calls onCacheMiss on this actor only when validated cached pixels cannot satisfy the request.
+    public func load(
+        at url: URL, generation: Int, access: FileAccess? = nil, onCacheMiss: (@Sendable () -> Void)? = nil
+    ) throws -> LoadedImage {
         // A cancelled queued navigation/prefetch must not spend time decoding or reset a newer session.
         try Task.checkCancellation()
         defer { withExtendedLifetime(access) {} }
@@ -39,7 +42,11 @@ public actor ImageStore {
             self.generation = generation
         }
         let loaded = try cache.load(
-            at: url, decode: { try decode(url) },
+            at: url,
+            decode: {
+                onCacheMiss?()
+                return try decode(url)
+            },
             byteCost: {
                 $0.image.bytesPerRow * $0.image.height
             })

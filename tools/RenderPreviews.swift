@@ -82,6 +82,7 @@ enum RenderPreviews {
             }
         }
         try verifyArrowNavigation(viewer)
+        try verifyCachedNavigation(fixture: fixture)
         try verifyObsoleteFolderScan(fixture: fixture)
         try verifyGallery(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
@@ -281,12 +282,10 @@ enum RenderPreviews {
             let retainedImage = canvas.image
             let retainedScale = canvas.zoom.scale
             canvas.keyDown(with: event)
-            // The main actor has not yielded, so completion cannot race these loading-state assertions.
+            // Keep the previous pixels while checking the cache; a miss may show the overlay after yielding.
             guard canvas.image === retainedImage, canvas.zoom.scale == retainedScale, canvas.isLoading,
                 metadata.string.isEmpty,
-                descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
-                    $0.stringValue == window.title && !$0.isHiddenOrHasHiddenAncestor
-                })
+                descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).allSatisfy(\.isHidden)
             else { throw PreviewError.loadingOverlayFailed }
         }
         var index = 0
@@ -330,7 +329,68 @@ enum RenderPreviews {
         try waitUntil("navigation after error") {
             !canvas.isLoading && canvas.image != nil && metadata.string.contains("a.jpg")
         }
+        settle()
+        guard !canvas.isLoading else { throw PreviewError.loadingOverlayFailed }
         print("Verified arrow wrapping/reversal, rapid selections, and superseded explicit opens with the real photo.")
+    }
+
+    /// Ensures cached next/previous images replace the canvas without ever presenting a loading overlay.
+    private static func verifyCachedNavigation(fixture: URL) throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let urls = ["a.png", "b.png"].map { folder.appendingPathComponent($0) }
+        for url in urls { try FileManager.default.copyItem(at: fixture, to: url) }
+        let store = ImageStore()
+        let viewer = ViewerController(imageStore: store)
+        guard let window = viewer.window, let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let overlay = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first
+        else { throw PreviewError.navigationFailed }
+        defer { window.close() }
+        func waitWithoutOverlay(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                guard overlay.isHidden else { throw PreviewError.loadingOverlayFailed }
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            }
+            guard ready(), overlay.isHidden else { throw PreviewError.loadingOverlayFailed }
+        }
+        var warmed: Result<Void, Error>?
+        let warmup = Task {
+            do {
+                // The first explicit open starts generation 1; prewarm that same viewer session.
+                for url in urls { _ = try await store.load(at: url, generation: 1, access: FileAccess(url: folder)) }
+                warmed = .success(())
+            } catch { warmed = .failure(error) }
+        }
+        defer { warmup.cancel() }
+        try waitWithoutOverlay { warmed != nil }
+        try warmed?.get()
+        viewer.open(urls[0])
+        try waitWithoutOverlay { !canvas.isLoading && canvas.image != nil && window.attachedSheet == nil }
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        try waitWithoutOverlay {
+            descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "1 of 2" }
+        }
+        for forward in [true, false, true, false] {
+            let previous = canvas.image
+            // A cached selection must also dismiss loading feedback left by the previous selection.
+            canvas.showLoading(filename: "previous-request.png")
+            if forward { viewer.nextImage() } else { viewer.previousImage() }
+            guard canvas.isLoading, overlay.isHidden, canvas.image === previous else {
+                throw PreviewError.loadingOverlayFailed
+            }
+            try waitWithoutOverlay { !canvas.isLoading }
+            guard canvas.image != nil, canvas.image !== previous,
+                window.title == (forward ? "b.png" : "a.png")
+            else { throw PreviewError.navigationFailed }
+        }
+        // Drain any queued notifications: completion must not be followed by a stale loading overlay.
+        settle()
+        guard !canvas.isLoading, overlay.isHidden else { throw PreviewError.loadingOverlayFailed }
+        print("Verified cached next/previous navigation skips the loading overlay.")
     }
 
     /// Ensures a new explicit open cancels an active scan, retains its grant until exit, and rejects its results.
