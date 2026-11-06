@@ -165,6 +165,11 @@ public struct ViewingSession: Sendable {
         selectedURL = visible[((index + delta) % visible.count + visible.count) % visible.count].url
     }
 
+    public mutating func select(_ url: URL) {
+        guard visibleEntries.contains(where: { $0.url == url }) else { return }
+        selectedURL = url
+    }
+
     private func isMissingSortValue(_ entry: ImageEntry) -> Bool {
         switch preferences.sort {
         case .rating: return entry.rating == nil

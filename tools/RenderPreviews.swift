@@ -83,8 +83,127 @@ enum RenderPreviews {
         }
         try verifyArrowNavigation(viewer)
         try verifyObsoleteFolderScan(fixture: fixture)
+        try verifyGallery(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures the authorized folder grid loads bounded previews, opens its selection, and survives reuse.
+    private static func verifyGallery(fixture: URL, output: URL) throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let urls = (1...80).map { folder.appendingPathComponent("photo\($0).png") }
+        for url in urls { try FileManager.default.copyItem(at: fixture, to: url) }
+        try Data().write(to: folder.appendingPathComponent("broken.jpg"))
+        let viewer = ViewerController()
+        guard let window = viewer.window, let root = window.contentView,
+            let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
+            let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first
+        else { throw PreviewError.galleryFailed }
+        defer { window.close() }
+        window.setContentSize(NSSize(width: 1000, height: 680))
+        func waitUntil(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                settle()
+            }
+            guard ready() else { throw PreviewError.galleryFailed }
+        }
+        func key(_ code: UInt16) throws {
+            let characters = code == 124 ? "\u{F703}" : "\r"
+            guard
+                let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters,
+                    isARepeat: false, keyCode: code)
+            else { throw PreviewError.galleryFailed }
+            collection.keyDown(with: event)
+        }
+        viewer.open(urls[0])
+        try waitUntil { !canvas.isLoading && canvas.image != nil && window.attachedSheet == nil }
+        viewer.toggleGallery()
+        guard gallery.isHidden, collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
+        (window.attachedSheet as? NSOpenPanel)?.cancel(nil)
+        settle()
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        viewer.toggleGallery()
+        try waitUntil {
+            collection.numberOfItems(inSection: 0) == 81
+                && collection.visibleItems().contains { $0.imageView?.image != nil }
+        }
+        guard !gallery.isHidden, canvas.isHidden, collection.visibleItems().count < 81,
+            collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)]
+        else { throw PreviewError.galleryFailed }
+        try waitUntil {
+            descendants(gallery).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Preview unavailable" }
+        }
+        window.appearance = NSAppearance(named: .aqua)
+        settle()
+        try capture(window, to: output.appendingPathComponent("gallery-light.png"))
+        try key(124)
+        guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
+            throw PreviewError.galleryFailed
+        }
+        try key(36)
+        try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == "photo2.png" }
+        viewer.toggleGallery()
+        guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
+            throw PreviewError.galleryFailed
+        }
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.setContentSize(NSSize(width: 720, height: 480))
+        settle()
+        try capture(window, to: output.appendingPathComponent("gallery-compact-dark.png"))
+        for index in [80, 1, 70, 2] {
+            collection.scrollToItems(at: [IndexPath(item: index, section: 0)], scrollPosition: .centeredVertically)
+            settle()
+        }
+        try waitUntil {
+            collection.visibleItems().filter { $0.textField?.stringValue != "broken.jpg" }.allSatisfy {
+                $0.imageView?.image != nil && ($0.imageView?.image?.size.width ?? 0) <= 320
+                    && $0.imageView?.accessibilityLabel() == $0.textField?.stringValue
+            }
+        }
+        // The existing filter controls must affect both views, including recovery from no matches.
+        guard
+            let browse = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
+                as? NSButton
+        else { throw PreviewError.galleryFailed }
+        browse.performClick(nil)
+        settle()
+        guard
+            let popover = NSApp.windows.first(where: {
+                $0 !== window && $0.isVisible
+                    && $0.contentView.map {
+                        descendants($0).compactMap { $0 as? NSPopUpButton }.contains {
+                            $0.toolTip == "Filter by exact star rating"
+                        }
+                    } == true
+            }),
+            let rating = descendants(popover.contentView!).compactMap({ $0 as? NSPopUpButton })
+                .first(where: { $0.toolTip == "Filter by exact star rating" })
+        else { throw PreviewError.galleryFailed }
+        rating.selectItem(at: 6)
+        rating.sendAction(rating.action, to: rating.target)
+        browse.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 0,
+            let clear = descendants(gallery).compactMap({ $0 as? NSButton }).first(where: {
+                $0.title == "Clear Filters"
+            })
+        else { throw PreviewError.galleryFailed }
+        clear.performClick(nil)
+        try waitUntil { collection.numberOfItems(inSection: 0) == 81 }
+        // A new explicit open must close the gallery and discard its old cells and thumbnail requests.
+        viewer.open(fixture)
+        try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == fixture.lastPathComponent }
+        guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
+        print(
+            "Verified gallery permissions, thumbnails, selection, keyboard opening, reuse, filtering, and session reset."
+        )
     }
 
     /// Ensures the loading card stays compact and legible over retained pixels in both appearances.
@@ -298,7 +417,8 @@ enum RenderPreviews {
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw PreviewError.captureFailed }
         try data.write(to: url)
         // Verify the rendered window contains a usable image area even with the inspector visible.
-        if let canvas = descendants(view).compactMap({ $0 as? ImageCanvas }).first {
+        if let canvas = descendants(view).compactMap({ $0 as? ImageCanvas }).first, !canvas.isHiddenOrHasHiddenAncestor
+        {
             guard canvas.frame.width >= 300, canvas.frame.height >= 250 else { throw PreviewError.clippedCanvas }
         }
     }
@@ -339,7 +459,7 @@ enum RenderPreviews {
     }
 
     private enum PreviewError: Error {
-        case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
+        case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, galleryFailed
         case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed, loadingOverlayFailed
     }
 }

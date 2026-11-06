@@ -94,6 +94,69 @@ func transparencyAndColorSpace() throws {
     }
 }
 
+/// Ensures thumbnails respect orientation and preserve alpha, color information, and source bytes.
+@Test(arguments: [1, 6])
+func thumbnailRendering(_ orientation: Int) throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("thumbnail.png")
+        try fixture(at: url, orientation: orientation)
+        let before = try Data(contentsOf: url)
+        let image = try ImageLoader.thumbnail(at: url)
+        #expect(image.width == (orientation == 6 ? 8 : 12))
+        #expect(image.height == (orientation == 6 ? 12 : 8))
+        #expect(image.colorSpace != nil)
+        #expect([CGImageAlphaInfo.premultipliedLast, .premultipliedFirst, .last, .first].contains(image.alphaInfo))
+        #expect(try Data(contentsOf: url) == before)
+    }
+}
+
+/// Ensures large-photo thumbnails stay within the gallery pixel budget without reducing viewer detail.
+@Test
+func thumbnailPixelBudget() throws {
+    let url = try #require(
+        Bundle.module.url(forResource: "DSCF2143-LR-light", withExtension: "jpg", subdirectory: "Fixtures"))
+    let image = try ImageLoader.thumbnail(at: url)
+    #expect(max(image.width, image.height) == 320)
+    #expect(image.width > 0 && image.height > 0)
+    #expect(image.bytesPerRow * image.height < 1024 * 1024)
+    let full = try ImageLoader.decode(at: url)
+    #expect(full.width == 4085 && full.height == 6128)
+}
+
+/// Ensures thumbnail failures remain recoverable and do not prevent decoding the next image.
+@Test
+func thumbnailFailures() throws {
+    try withFolder { folder in
+        let corrupt = folder.appendingPathComponent("corrupt.jpg")
+        try Data().write(to: corrupt)
+        for name in ["corrupt.jpg", "missing.png", "unsupported.raw"] {
+            #expect(throws: ImageLoadError.self) { try ImageLoader.thumbnail(at: folder.appendingPathComponent(name)) }
+        }
+        let valid = folder.appendingPathComponent("valid.png")
+        try fixture(at: valid)
+        #expect(try ImageLoader.thumbnail(at: valid).width == 12)
+    }
+}
+
+/// Ensures a cancelled gallery request is skipped and the decoder remains usable for the next request.
+@Test
+func cancelledThumbnailRequest() async throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let loader = ThumbnailLoader()
+    let access = FileAccess(url: folder)
+    let cancelled = Task {
+        withUnsafeCurrentTask { $0?.cancel() }
+        return try await loader.load(at: folder.appendingPathComponent("missing.png"), access: access)
+    }
+    await #expect(throws: CancellationError.self) { try await cancelled.value }
+    let valid = folder.appendingPathComponent("valid.png")
+    try fixture(at: valid)
+    let loaded = try await loader.load(at: valid, access: access)
+    #expect(loaded.image.width == 12)
+}
+
 /// Ensures embedded XMP ratings are read and sidecars never change ratings or enter navigation.
 @Test
 func embeddedRatingAndSidecarExclusion() throws {

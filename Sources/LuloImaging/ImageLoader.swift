@@ -194,6 +194,14 @@ public enum ImageLoader {
     }
 
     public static func decode(at url: URL) throws -> CGImage {
+        try decode(at: url, maximumPixelSize: nil)
+    }
+
+    public static func thumbnail(at url: URL) throws -> CGImage {
+        try decode(at: url, maximumPixelSize: 320)
+    }
+
+    private static func decode(at url: URL, maximumPixelSize: Int?) throws -> CGImage {
         _ = try validateFormat(url)
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
             let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
@@ -205,7 +213,7 @@ public enum ImageLoader {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(width, height),
+            kCGImageSourceThumbnailMaxPixelSize: min(maximumPixelSize ?? max(width, height), max(width, height)),
             kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceShouldAllowFloat: false,
         ]
