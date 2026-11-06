@@ -38,6 +38,7 @@ enum RenderPreviews {
             throw PreviewError.imageDidNotLoad
         }
         settle()
+        try verifyDisplayToggle(window)
         try capture(window, to: output.appendingPathComponent("image-light.png"))
         viewer.toggleSidebar()
         settle()
@@ -47,10 +48,9 @@ enum RenderPreviews {
         settle()
         try capture(window, to: output.appendingPathComponent("metadata-compact-dark.png"))
         try verifyLoadingOverlay(window, output: output)
-        if let browse = window.toolbar?.items.compactMap({ $0.view as? NSButton }).first(where: {
-            $0.title == "Sort & Filter"
-        }
-        ) {
+        if let browse = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
+            as? NSButton
+        {
             browse.performClick(nil)
             settle()
             if let popover = app.windows.first(where: { $0 !== window && $0.isVisible && $0.contentView != nil }) {
@@ -73,6 +73,8 @@ enum RenderPreviews {
             } else {
                 throw PreviewError.missingPopover
             }
+        } else {
+            throw PreviewError.missingFilterControls
         }
         try verifyArrowNavigation(viewer)
         try verifyCachedNavigation(fixture: fixture)
@@ -81,6 +83,33 @@ enum RenderPreviews {
         try verifyTrashAction(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures each zoom segment updates the image and saved default, including restoration in a new viewer.
+    private static func verifyDisplayToggle(_ window: NSWindow) throws {
+        guard let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let display = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Display" })?.view
+                as? NSSegmentedControl,
+            display.selectedSegment == 0, canvas.displayDefault == .fit, canvas.zoom.scale == nil
+        else { throw PreviewError.displayToggleFailed }
+        for (segment, expected) in [(1, DisplayDefault.actualSize), (0, DisplayDefault.fit)] {
+            canvas.zoom.scroll(up: true, currentScale: 2)
+            display.selectedSegment = segment
+            display.sendAction(display.action, to: display.target)
+            guard canvas.displayDefault == expected,
+                canvas.zoom.scale == (expected == .fit ? nil : 1),
+                Preferences(defaults: .standard).display == expected
+            else { throw PreviewError.displayToggleFailed }
+            let restored = ViewerController()
+            defer { restored.window?.close() }
+            guard
+                let restoredDisplay = restored.window?.toolbar?.items.first(where: {
+                    $0.itemIdentifier.rawValue == "Display"
+                })?.view as? NSSegmentedControl,
+                restoredDisplay.selectedSegment == segment
+            else { throw PreviewError.displayToggleFailed }
+        }
     }
 
     /// Ensures the grid preserves ratings, previews, selection, and multi-select filters while disabling Trash.
@@ -102,6 +131,8 @@ enum RenderPreviews {
             let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let display = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Display" })?.view
+                as? NSSegmentedControl,
             let trash = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Trash" })?.view as? NSButton
         else { throw PreviewError.galleryFailed }
         defer { window.close() }
@@ -152,7 +183,7 @@ enum RenderPreviews {
         }
         guard !gallery.isHidden, canvas.isHidden, collection.visibleItems().count < 81,
             collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)],
-            !viewer.canTrashCurrentImage, !trash.isEnabled
+            !viewer.canTrashCurrentImage, !trash.isEnabled, !display.isEnabled
         else { throw PreviewError.galleryFailed }
         viewer.trashCurrentImage()
         guard window.attachedSheet == nil else { throw PreviewError.galleryFailed }
@@ -182,6 +213,7 @@ enum RenderPreviews {
         }
         try key(36)
         try waitUntil { gallery.isHidden && viewer.canTrashCurrentImage && window.title == "photo2.png" }
+        guard display.isEnabled else { throw PreviewError.displayToggleFailed }
         viewer.toggleGallery()
         guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
             throw PreviewError.galleryFailed
@@ -352,9 +384,8 @@ enum RenderPreviews {
             let png = buttons.first(where: { $0.title == "PNG" }),
             let clear = buttons.first(where: { $0.title == "Clear Filters" }),
             let canvas = descendants(viewer.contentView!).compactMap({ $0 as? ImageCanvas }).first,
-            let browse = viewer.toolbar?.items.compactMap({ $0.view as? NSButton }).first(where: {
-                $0.title == "Sort & Filter"
-            })
+            let browse = viewer.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
+                as? NSButton
         else { throw PreviewError.missingFilterControls }
         let choices = buttons.filter { $0.action == fiveStars.action }
         guard choices.count == 9, choices.allSatisfy({ $0.state == .off }) else {
@@ -370,7 +401,8 @@ enum RenderPreviews {
         png.performClick(nil)
         jpeg.performClick(nil)
         guard unrated.state == .on, fiveStars.state == .on, png.state == .on, jpeg.state == .on,
-            canvas.image != nil, browse.title == "Sort & Filter (2)",
+            canvas.image != nil, browse.accessibilityLabel() == "Sort & Filter, 2 active filters",
+            browse.toolTip == browse.accessibilityLabel(),
             descendants(viewer.contentView!).compactMap({ $0 as? NSTextField }).contains(where: {
                 $0.stringValue == "Filtered by Unrated / 0 Stars, 5 Stars · JPEG, PNG"
             })
@@ -381,11 +413,11 @@ enum RenderPreviews {
         jpeg.performClick(nil)
         let deadline = Date().addingTimeInterval(15)
         while canvas.image == nil && Date() < deadline { settle() }
-        guard canvas.image != nil, browse.title == "Sort & Filter (1)" else {
+        guard canvas.image != nil, browse.accessibilityLabel() == "Sort & Filter, 1 active filters" else {
             throw PreviewError.filterDidNotClear
         }
         clear.performClick(nil)
-        guard choices.allSatisfy({ $0.state == .off }), browse.title == "Sort & Filter" else {
+        guard choices.allSatisfy({ $0.state == .off }), browse.accessibilityLabel() == "Sort & Filter" else {
             throw PreviewError.filterDidNotClear
         }
         unrated.performClick(nil)
@@ -714,6 +746,7 @@ enum RenderPreviews {
     }
 
     private enum PreviewError: Error {
+        case displayToggleFailed
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, galleryFailed
         case galleryRatingPlacementFailed
         case trashFailed

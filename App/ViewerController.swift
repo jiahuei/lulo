@@ -12,7 +12,7 @@ final class ViewerController: NSWindowController {
     private var galleryVisible = false
     private let metadata = NSTextView()
     private let sidebar = NSScrollView()
-    private let display = NSPopUpButton()
+    private let display = NSSegmentedControl()
     private let sorting = NSPopUpButton()
     private let direction = NSPopUpButton()
     private var ratingButtons: [NSButton] = []
@@ -75,9 +75,18 @@ final class ViewerController: NSWindowController {
 
     private func buildInterface() {
         guard let window else { return }
-        popup(
-            display, title: "Default image zoom", values: DisplayDefault.allCases.map(\.rawValue),
-            action: #selector(preferencesChanged))
+        display.segmentCount = 2
+        display.trackingMode = .selectOne
+        display.segmentStyle = .texturedRounded
+        display.setImage(
+            NSImage(systemSymbolName: "arrow.down.right.and.arrow.up.left", accessibilityDescription: "Fit to Window"),
+            forSegment: 0)
+        display.setLabel("100%", forSegment: 1)
+        display.setToolTip("Fit to Window", forSegment: 0)
+        display.setToolTip("100%", forSegment: 1)
+        display.setAccessibilityLabel("Default image zoom")
+        display.target = self
+        display.action = #selector(preferencesChanged)
         popup(
             sorting, title: "Sort images by", values: SortMethod.allCases.map(\.rawValue),
             action: #selector(preferencesChanged))
@@ -90,7 +99,7 @@ final class ViewerController: NSWindowController {
         formatButtons = ImageFormat.allCases.map {
             NSButton(checkboxWithTitle: $0.rawValue, target: self, action: #selector(filtersChanged))
         }
-        display.selectItem(withTitle: session.preferences.display.rawValue)
+        display.selectedSegment = session.preferences.display == .fit ? 0 : 1
         sorting.selectItem(withTitle: session.preferences.sort.rawValue)
         direction.selectItem(at: session.preferences.ascending ? 0 : 1)
         configureButton(previous, title: "Previous image", symbol: "chevron.left", action: #selector(previousImage))
@@ -100,13 +109,9 @@ final class ViewerController: NSWindowController {
         configureButton(trash, title: "Move to Trash", symbol: "trash", action: #selector(trashCurrentImage))
         configureButton(
             galleryButton, title: "Show gallery", symbol: "square.grid.2x2", action: #selector(toggleGallery))
-        galleryButton.title = "Gallery"
-        galleryButton.imagePosition = .imageLeading
         galleryButton.setButtonType(.toggle)
         configureButton(
-            browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease", action: #selector(showBrowse))
-        browse.title = "Sort & Filter"
-        browse.imagePosition = .imageLeading
+            browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease.circle", action: #selector(showBrowse))
         makeBrowsePopover()
         let toolbar = NSToolbar(identifier: "Viewer")
         toolbar.delegate = self
@@ -613,9 +618,9 @@ final class ViewerController: NSWindowController {
         if !formats.isEmpty { filters.append(formats.joined(separator: ", ")) }
         filterSummary.stringValue = filters.isEmpty ? "" : "Filtered by " + filters.joined(separator: " · ")
         filterSummary.toolTip = filterSummary.stringValue
-        browse.title = filters.isEmpty ? "Sort & Filter" : "Sort & Filter (\(filters.count))"
-        browse.setAccessibilityLabel(
-            filters.isEmpty ? "Sort & Filter" : "Sort & Filter, \(filters.count) active filters")
+        let browseLabel = filters.isEmpty ? "Sort & Filter" : "Sort & Filter, \(filters.count) active filters"
+        browse.toolTip = browseLabel
+        browse.setAccessibilityLabel(browseLabel)
     }
 
     private func navigate(_ delta: Int) {
@@ -632,7 +637,7 @@ final class ViewerController: NSWindowController {
     @objc private func preferencesChanged() {
         let oldDisplay = session.preferences.display
         session.preferences = Preferences(
-            display: DisplayDefault.allCases[display.indexOfSelectedItem],
+            display: display.selectedSegment == 0 ? .fit : .actualSize,
             sort: SortMethod.allCases[sorting.indexOfSelectedItem],
             ascending: direction.indexOfSelectedItem == 0)
         session.preferences.save(to: .standard)
@@ -726,9 +731,8 @@ extension ViewerController: NSToolbarDelegate {
         switch identifier.rawValue {
         case "Open":
             item.label = "Open Image"
-            let button = NSButton(title: "Open", target: self, action: #selector(openPanel))
-            button.bezelStyle = .texturedRounded
-            button.toolTip = "Open image"
+            let button = NSButton()
+            configureButton(button, title: "Open image", symbol: "photo", action: #selector(openPanel))
             item.view = button
         case "Previous":
             item.label = "Previous Image"
