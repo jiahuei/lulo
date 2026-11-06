@@ -12,8 +12,8 @@ final class ViewerController: NSWindowController {
     private let display = NSPopUpButton()
     private let sorting = NSPopUpButton()
     private let direction = NSPopUpButton()
-    private let rating = NSPopUpButton()
-    private let format = NSPopUpButton()
+    private var ratingButtons: [NSButton] = []
+    private var formatButtons: [NSButton] = []
     private let info = NSButton()
     private let browse = NSButton()
     private let previous = NSButton()
@@ -71,13 +71,12 @@ final class ViewerController: NSWindowController {
         popup(
             direction, title: "Sort direction", values: ["Ascending", "Descending"],
             action: #selector(preferencesChanged))
-        popup(
-            rating, title: "Filter by exact star rating",
-            values: ["All Ratings", "Unrated / 0 Stars", "1 Star", "2 Stars", "3 Stars", "4 Stars", "5 Stars"],
-            action: #selector(filtersChanged))
-        popup(
-            format, title: "Filter by file type", values: ["All Types"] + ImageFormat.allCases.map(\.rawValue),
-            action: #selector(filtersChanged))
+        ratingButtons = ["Unrated / 0 Stars", "1 Star", "2 Stars", "3 Stars", "4 Stars", "5 Stars"].map {
+            NSButton(checkboxWithTitle: $0, target: self, action: #selector(filtersChanged))
+        }
+        formatButtons = ImageFormat.allCases.map {
+            NSButton(checkboxWithTitle: $0.rawValue, target: self, action: #selector(filtersChanged))
+        }
         display.selectItem(withTitle: session.preferences.display.rawValue)
         sorting.selectItem(withTitle: session.preferences.sort.rawValue)
         direction.selectItem(at: session.preferences.ascending ? 0 : 1)
@@ -172,25 +171,37 @@ final class ViewerController: NSWindowController {
         let heading = NSTextField(labelWithString: "Sort & Filter")
         heading.font = .systemFont(ofSize: 15, weight: .semibold)
         let reset = NSButton(title: "Clear Filters", target: self, action: #selector(clearFilters))
+        let ratings = NSGridView(views: [
+            [ratingButtons[0], ratingButtons[1]],
+            [ratingButtons[2], ratingButtons[3]],
+            [ratingButtons[4], ratingButtons[5]],
+        ])
+        ratings.rowSpacing = 8
+        ratings.columnSpacing = 12
+        let formats = NSStackView(views: formatButtons)
+        formats.spacing = 8
         let grid = NSGridView(views: [
             [NSTextField(labelWithString: "Sort by"), sorting],
             [NSTextField(labelWithString: "Direction"), direction],
-            [NSTextField(labelWithString: "Rating"), rating],
-            [NSTextField(labelWithString: "File type"), format],
+            [NSTextField(labelWithString: "Rating"), ratings],
+            [NSTextField(labelWithString: "File type"), formats],
         ])
         grid.rowSpacing = 12
         grid.columnSpacing = 16
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 0).width = 68
         grid.column(at: 1).xPlacement = .fill
-        let note = NSTextField(wrappingLabelWithString: "Rating and file type filters apply together.")
+        let note = NSTextField(
+            wrappingLabelWithString:
+                "Select any matching values in each group. No checkmarks means all values. Rating and file type apply together."
+        )
         note.font = .systemFont(ofSize: 11)
         note.textColor = .secondaryLabelColor
         let stack = NSStackView(views: [heading, grid, note, reset])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 16
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 300))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 320))
         stack.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -204,7 +215,7 @@ final class ViewerController: NSWindowController {
         controller.view = container
         browsePopover.contentViewController = controller
         browsePopover.behavior = .transient
-        browsePopover.contentSize = NSSize(width: 340, height: 300)
+        browsePopover.contentSize = NSSize(width: 380, height: 320)
     }
 
     @objc private func showBrowse() {
@@ -216,8 +227,7 @@ final class ViewerController: NSWindowController {
     }
 
     @objc private func clearFilters() {
-        rating.selectItem(at: 0)
-        format.selectItem(at: 0)
+        for button in ratingButtons + formatButtons { button.state = .off }
         filtersChanged()
     }
 
@@ -282,8 +292,7 @@ final class ViewerController: NSWindowController {
         fileAccess = FileAccess(url: url)
         let entry = ImageFormat(url: url).map { ImageEntry(url: url, format: $0) }
         session.open(entry)
-        rating.selectItem(at: 0)
-        format.selectItem(at: 0)
+        for button in ratingButtons + formatButtons { button.state = .off }
         info.state = .off
         info.setAccessibilityLabel("Show metadata")
         sidebar.isHidden = true
@@ -458,8 +467,10 @@ final class ViewerController: NSWindowController {
         previous.isEnabled = !entries.isEmpty
         next.isEnabled = !entries.isEmpty
         var filters: [String] = []
-        if let rating = session.filter.rating { filters.append(rating == 0 ? "Unrated / 0 Stars" : "\(rating) Stars") }
-        if let format = session.filter.format { filters.append(format.rawValue) }
+        let ratings = ratingButtons.filter { $0.state == .on }.map(\.title)
+        let formats = formatButtons.filter { $0.state == .on }.map(\.title)
+        if !ratings.isEmpty { filters.append(ratings.joined(separator: ", ")) }
+        if !formats.isEmpty { filters.append(formats.joined(separator: ", ")) }
         filterSummary.stringValue = filters.isEmpty ? "" : "Filtered by " + filters.joined(separator: " · ")
         filterSummary.toolTip = filterSummary.stringValue
         browse.title = filters.isEmpty ? "Sort & Filter" : "Sort & Filter (\(filters.count))"
@@ -492,8 +503,11 @@ final class ViewerController: NSWindowController {
 
     @objc private func filtersChanged() {
         session.filter = ImageFilter(
-            rating: rating.indexOfSelectedItem == 0 ? nil : rating.indexOfSelectedItem - 1,
-            format: format.indexOfSelectedItem == 0 ? nil : ImageFormat.allCases[format.indexOfSelectedItem - 1])
+            ratings: Set(ratingButtons.indices.filter { ratingButtons[$0].state == .on }),
+            formats: Set(
+                ImageFormat.allCases.enumerated().compactMap { index, format in
+                    formatButtons[index].state == .on ? format : nil
+                }))
         let previous = session.selectedURL
         session.reconcileSelection()
         if session.selectedURL != previous { loadSelection() }
