@@ -12,7 +12,7 @@ Left/right arrows on the image, toolbar navigation buttons, and Command-[ / Comm
 
 ## Interface
 
-The image occupies the main workspace. A native unified toolbar contains Open Image, Previous/Next, the saved zoom default, Sort & Filter, and Metadata. System fonts and semantic colors follow macOS light/dark appearance. The window title identifies the selected file.
+The image occupies the main workspace. A native unified toolbar contains a text button labeled Open, Previous/Next, the saved zoom default, Sort & Filter, and Metadata. System fonts and semantic colors follow macOS light/dark appearance. The window title identifies the selected file.
 
 Sort & Filter opens a transient popover with labeled sort, direction, rating, and file-type controls. Changes apply immediately. The Sort & Filter button reports the number of active filters, and the status bar names those filters beside the image position. Clear Filters is available both in Sort & Filter and in the no-matches state. New explicit opens dismiss Sort & Filter and return keyboard focus to the image.
 
