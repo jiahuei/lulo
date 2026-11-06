@@ -198,6 +198,7 @@ private final class GalleryItem: NSCollectionViewItem {
         cancelThumbnail()
         self.url = url
         filename.stringValue = url.lastPathComponent
+        preview.setAccessibilityLabel(url.lastPathComponent)
         view.toolTip = url.lastPathComponent
         updateSelection()
     }
@@ -211,7 +212,6 @@ private final class GalleryItem: NSCollectionViewItem {
                 let loaded = try await loader.load(at: url, access: access)
                 guard !Task.isCancelled, let self, self.url == url else { return }
                 self.preview.image = NSImage(cgImage: loaded.image, size: .zero)
-                self.preview.setAccessibilityLabel(url.lastPathComponent)
                 self.detail.stringValue = ""
             } catch is CancellationError {
                 return

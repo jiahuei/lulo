@@ -238,7 +238,12 @@ final class ViewerController: NSWindowController {
         if browsePopover.isShown {
             browsePopover.performClose(nil)
         } else {
-            browsePopover.show(relativeTo: browse.bounds, of: browse, preferredEdge: .minY)
+            // Toolbar overflow detaches the button; anchor its popover inside the window in that case.
+            guard let anchor = browse.window == nil ? window?.contentView : browse else { return }
+            let bounds =
+                anchor === browse
+                ? browse.bounds : NSRect(x: anchor.bounds.maxX - 20, y: anchor.bounds.maxY - 1, width: 1, height: 1)
+            browsePopover.show(relativeTo: bounds, of: anchor, preferredEdge: .minY)
         }
     }
 
@@ -625,6 +630,7 @@ extension ViewerController: NSToolbarDelegate {
         case "Gallery":
             item.label = "Gallery"
             item.view = galleryButton
+            item.visibilityPriority = .high
         case "Next":
             item.label = "Next Image"
             item.view = next
@@ -634,6 +640,7 @@ extension ViewerController: NSToolbarDelegate {
         case "Browse":
             item.label = "Sort & Filter"
             item.view = browse
+            item.visibilityPriority = .high
         case "Metadata":
             item.label = "Metadata"
             item.view = info
