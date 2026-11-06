@@ -2,6 +2,8 @@
 
 Automated package tests and an unsigned build do not establish Finder integration, sandbox behavior, rendering fidelity, gestures, or accessibility. The following checks remain a release gate and must be recorded on a Mac. Use only synthetic or appropriately licensed fixtures. Do not publish personal paths, GPS, serial numbers, or metadata.
 
+For gallery ratings, automated native checks assert accessibility labels and the image geometry used to position overlays. CI generates light/dark captures but does not automatically compare their pixels. The rendered star count, gold color, absence of faint placeholders or stars on unrated images, and exact overlay placement require visual inspection. The automated assertions can pass even if the star drawing is missing.
+
 Build using QUICKSTART.md, then run a locally signed app with the checked-in sandbox entitlements. An unsigned build or a package test is not proof of sandbox enforcement. Record macOS/Xcode versions, display backing scales, input devices, and actual results when performing these checks.
 
 - [ ] Launch: window fills the available screen without native full screen; image fit is letterboxed and uncropped.
