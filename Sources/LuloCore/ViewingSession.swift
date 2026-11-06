@@ -67,13 +67,14 @@ public struct Preferences: Equatable, Sendable {
     }
 }
 
+/// Checked values in each group; an empty set leaves that group unrestricted.
 public struct ImageFilter: Equatable, Sendable {
-    public var rating: Int?
-    public var format: ImageFormat?
+    public var ratings: Set<Int>
+    public var formats: Set<ImageFormat>
 
-    public init(rating: Int? = nil, format: ImageFormat? = nil) {
-        self.rating = rating
-        self.format = format
+    public init(ratings: Set<Int> = [], formats: Set<ImageFormat> = []) {
+        self.ratings = ratings
+        self.formats = formats
     }
 }
 
@@ -102,8 +103,8 @@ public struct ViewingSession: Sendable {
 
     private mutating func rebuildVisibleEntries() {
         visibleEntries = entries.filter {
-            (filter.rating == nil || ($0.rating ?? 0) == filter.rating)
-                && (filter.format == nil || $0.format == filter.format)
+            (filter.ratings.isEmpty || filter.ratings.contains($0.rating ?? 0))
+                && (filter.formats.isEmpty || filter.formats.contains($0.format))
         }.sorted { left, right in
             let comparison: ComparisonResult
             switch preferences.sort {
@@ -147,6 +148,18 @@ public struct ViewingSession: Sendable {
         guard let index = entries.firstIndex(where: { $0.url == entry.url }), entries[index] != entry else { return }
         entries[index] = entry
         rebuildVisibleEntries()
+        reconcileSelection()
+    }
+
+    /// Removes an entry only after its file was successfully trashed, keeping the next visible image selected.
+    public mutating func removeEntry(at url: URL) {
+        let removedIndex = visibleEntries.firstIndex(where: { $0.url == url })
+        let wasSelected = selectedURL == url
+        entries.removeAll { $0.url == url }
+        rebuildVisibleEntries()
+        if wasSelected, let removedIndex, !visibleEntries.isEmpty {
+            selectedURL = visibleEntries[removedIndex % visibleEntries.count].url
+        }
         reconcileSelection()
     }
 

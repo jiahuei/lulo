@@ -55,14 +55,7 @@ enum RenderPreviews {
             settle()
             if let popover = app.windows.first(where: { $0 !== window && $0.isVisible && $0.contentView != nil }) {
                 try capture(popover, to: output.appendingPathComponent("browse-dark.png"))
-                guard
-                    let rating = descendants(popover.contentView!).compactMap({ $0 as? NSPopUpButton })
-                        .first(where: { $0.toolTip == "Filter by exact star rating" })
-                else {
-                    throw PreviewError.missingFilterControls
-                }
-                rating.selectItem(at: 6)
-                rating.sendAction(rating.action, to: rating.target)
+                try verifyFilterCheckboxes(popover: popover, viewer: window)
                 browse.performClick(nil)
                 settle()
                 guard let canvas = descendants(window.contentView!).compactMap({ $0 as? ImageCanvas }).first,
@@ -85,11 +78,12 @@ enum RenderPreviews {
         try verifyCachedNavigation(fixture: fixture)
         try verifyObsoleteFolderScan(fixture: fixture)
         try verifyGallery(fixture: fixture, output: output)
+        try verifyTrashAction(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
     }
 
-    /// Ensures the grid preserves ratings, bounded previews, selection, and filters across cell reuse.
+    /// Ensures the grid preserves ratings, previews, selection, and multi-select filters while disabling Trash.
     private static func verifyGallery(fixture: URL, output: URL) throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -107,7 +101,8 @@ enum RenderPreviews {
         guard let window = viewer.window, let root = window.contentView,
             let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
-            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let trash = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Trash" })?.view as? NSButton
         else { throw PreviewError.galleryFailed }
         defer { window.close() }
         window.setContentSize(NSSize(width: 1000, height: 680))
@@ -156,8 +151,11 @@ enum RenderPreviews {
                 && collection.visibleItems().contains { $0.imageView?.image != nil }
         }
         guard !gallery.isHidden, canvas.isHidden, collection.visibleItems().count < 81,
-            collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)]
+            collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)],
+            !viewer.canTrashCurrentImage, !trash.isEnabled
         else { throw PreviewError.galleryFailed }
+        viewer.trashCurrentImage()
+        guard window.attachedSheet == nil else { throw PreviewError.galleryFailed }
         try waitUntil {
             descendants(gallery).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Preview unavailable" }
         }
@@ -183,7 +181,7 @@ enum RenderPreviews {
             throw PreviewError.galleryFailed
         }
         try key(36)
-        try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == "photo2.png" }
+        try waitUntil { gallery.isHidden && viewer.canTrashCurrentImage && window.title == "photo2.png" }
         viewer.toggleGallery()
         guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
             throw PreviewError.galleryFailed
@@ -209,25 +207,35 @@ enum RenderPreviews {
             let popover = NSApp.windows.first(where: {
                 $0 !== window && $0.isVisible
                     && $0.contentView.map {
-                        descendants($0).compactMap { $0 as? NSPopUpButton }.contains {
-                            $0.toolTip == "Filter by exact star rating"
+                        descendants($0).compactMap { $0 as? NSButton }.contains {
+                            $0.title == "5 Stars"
                         }
                     } == true
             }),
-            let rating = descendants(popover.contentView!).compactMap({ $0 as? NSPopUpButton })
-                .first(where: { $0.toolTip == "Filter by exact star rating" }),
-            let format = descendants(popover.contentView!).compactMap({ $0 as? NSPopUpButton })
-                .first(where: { $0.toolTip == "Filter by file type" })
+            let fiveStars = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "5 Stars" }),
+            let fourStars = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "4 Stars" }),
+            let jpeg = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "JPEG" }),
+            let png = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "PNG" })
         else { throw PreviewError.galleryFailed }
-        rating.selectItem(at: 6)
-        rating.sendAction(rating.action, to: rating.target)
+        fiveStars.performClick(nil)
         guard collection.numberOfItems(inSection: 0) == 1 else { throw PreviewError.galleryFailed }
         try waitUntil { thumbnailsReady() }
         guard collection.item(at: IndexPath(item: 0, section: 0))?.textField?.stringValue == "photo5.png" else {
             throw PreviewError.galleryFailed
         }
-        format.selectItem(withTitle: "JPEG")
-        format.sendAction(format.action, to: format.target)
+        fourStars.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.galleryFailed }
+        try waitUntil { thumbnailsReady() }
+        jpeg.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
+        png.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.galleryFailed }
+        try waitUntil { thumbnailsReady() }
+        png.performClick(nil)
         browse.performClick(nil)
         guard collection.numberOfItems(inSection: 0) == 0,
             let clear = descendants(gallery).compactMap({ $0 as? NSButton }).first(where: {
@@ -241,8 +249,149 @@ enum RenderPreviews {
         try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == fixture.lastPathComponent }
         guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
         print(
-            "Verified gallery permissions, rated thumbnails, selection, keyboard opening, reuse, filtering, and session reset."
+            "Verified gallery permissions, rated thumbnails, keyboard opening, reuse, multi-select filters, Trash availability, and session reset."
         )
+    }
+
+    /// Ensures Trash confirmation, cancellation, failure, navigation, and stale completion use the captured image.
+    private static func verifyTrashAction(fixture: URL, output: URL) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let folder = root.appendingPathComponent("images")
+        let discarded = root.appendingPathComponent("discarded")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: discarded, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = folder.appendingPathComponent("a.png")
+        let second = folder.appendingPathComponent("b.png")
+        let replacement = root.appendingPathComponent("new.png")
+        for url in [first, second, replacement] { try FileManager.default.copyItem(at: fixture, to: url) }
+        let operation = TrashPreviewOperation(destination: discarded)
+        let viewer = ViewerController(moveToTrash: { try await operation.move($0, access: $1) })
+        guard let window = viewer.window, let content = window.contentView,
+            let canvas = descendants(content).compactMap({ $0 as? ImageCanvas }).first,
+            let trash = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Trash" })?.view as? NSButton
+        else { throw PreviewError.trashFailed }
+        defer { window.close() }
+        func waitUntil(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                settle()
+            }
+            guard ready() else { throw PreviewError.trashFailed }
+        }
+        func clickSheetButton(_ title: String) throws {
+            guard let sheet = window.attachedSheet, let content = sheet.contentView,
+                let button = descendants(content).compactMap({ $0 as? NSButton }).first(where: { $0.title == title })
+            else { throw PreviewError.trashFailed }
+            button.performClick(nil)
+            settle()
+        }
+        func confirmTrash() throws {
+            viewer.trashCurrentImage()
+            try clickSheetButton("Move to Trash")
+            try waitUntil { operation.pendingURL != nil }
+            guard !viewer.canTrashCurrentImage else { throw PreviewError.trashFailed }
+        }
+        guard !viewer.canTrashCurrentImage, !trash.isEnabled else { throw PreviewError.trashFailed }
+        viewer.open(first)
+        guard !viewer.canTrashCurrentImage else { throw PreviewError.trashFailed }
+        try waitUntil { viewer.canTrashCurrentImage }
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        try waitUntil {
+            descendants(content).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "1 of 2" }
+        }
+        trash.performClick(nil)
+        settle()
+        guard let sheet = window.attachedSheet else { throw PreviewError.trashFailed }
+        try capture(sheet, to: output.appendingPathComponent("trash-confirmation.png"))
+        try clickSheetButton("Cancel")
+        guard operation.pendingURL == nil, viewer.canTrashCurrentImage,
+            FileManager.default.fileExists(atPath: first.path)
+        else { throw PreviewError.trashFailed }
+
+        try confirmTrash()
+        operation.fail()
+        try waitUntil { window.attachedSheet != nil }
+        try clickSheetButton("OK")
+        guard window.title == "a.png", canvas.image != nil, FileManager.default.fileExists(atPath: first.path) else {
+            throw PreviewError.trashFailed
+        }
+        try confirmTrash()
+        try operation.succeed()
+        try waitUntil { window.title == "b.png" && viewer.canTrashCurrentImage }
+        guard !FileManager.default.fileExists(atPath: first.path), FileManager.default.fileExists(atPath: second.path)
+        else { throw PreviewError.trashFailed }
+
+        try confirmTrash()
+        viewer.open(replacement)
+        try waitUntil { !canvas.isLoading && window.attachedSheet == nil }
+        guard operation.pendingURL == second, window.title == "new.png" else { throw PreviewError.trashFailed }
+        try operation.succeed()
+        try waitUntil { viewer.canTrashCurrentImage }
+        guard window.title == "new.png", FileManager.default.fileExists(atPath: replacement.path) else {
+            throw PreviewError.trashFailed
+        }
+        try confirmTrash()
+        try operation.succeed()
+        try waitUntil {
+            descendants(content).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "No images remaining" }
+        }
+        guard !viewer.canTrashCurrentImage, !trash.isEnabled, canvas.image == nil else {
+            throw PreviewError.trashFailed
+        }
+        print("Verified Trash confirmation, cancellation, failure, next selection, last image, and stale completion.")
+    }
+
+    /// Ensures real checkbox actions retain multiple choices, intersect groups, and recover after deselection.
+    private static func verifyFilterCheckboxes(popover: NSWindow, viewer: NSWindow) throws {
+        let buttons = descendants(popover.contentView!).compactMap { $0 as? NSButton }
+        guard let unrated = buttons.first(where: { $0.title == "Unrated / 0 Stars" }),
+            let fiveStars = buttons.first(where: { $0.title == "5 Stars" }),
+            let jpeg = buttons.first(where: { $0.title == "JPEG" }),
+            let png = buttons.first(where: { $0.title == "PNG" }),
+            let clear = buttons.first(where: { $0.title == "Clear Filters" }),
+            let canvas = descendants(viewer.contentView!).compactMap({ $0 as? ImageCanvas }).first,
+            let browse = viewer.toolbar?.items.compactMap({ $0.view as? NSButton }).first(where: {
+                $0.title == "Sort & Filter"
+            })
+        else { throw PreviewError.missingFilterControls }
+        let choices = buttons.filter { $0.action == fiveStars.action }
+        guard choices.count == 9, choices.allSatisfy({ $0.state == .off }) else {
+            throw PreviewError.filterDidNotClear
+        }
+        guard
+            (choices + [clear]).allSatisfy({
+                popover.contentView!.bounds.contains($0.convert($0.bounds, to: popover.contentView))
+            })
+        else { throw PreviewError.missingFilterControls }
+        unrated.performClick(nil)
+        fiveStars.performClick(nil)
+        png.performClick(nil)
+        jpeg.performClick(nil)
+        guard unrated.state == .on, fiveStars.state == .on, png.state == .on, jpeg.state == .on,
+            canvas.image != nil, browse.title == "Sort & Filter (2)",
+            descendants(viewer.contentView!).compactMap({ $0 as? NSTextField }).contains(where: {
+                $0.stringValue == "Filtered by Unrated / 0 Stars, 5 Stars · JPEG, PNG"
+            })
+        else { throw PreviewError.filterDidNotApply }
+        // The synthetic PNG is unrated: either group's exclusion must hide it.
+        png.performClick(nil)
+        guard canvas.image == nil else { throw PreviewError.filterDidNotApply }
+        jpeg.performClick(nil)
+        let deadline = Date().addingTimeInterval(15)
+        while canvas.image == nil && Date() < deadline { settle() }
+        guard canvas.image != nil, browse.title == "Sort & Filter (1)" else {
+            throw PreviewError.filterDidNotClear
+        }
+        clear.performClick(nil)
+        guard choices.allSatisfy({ $0.state == .off }), browse.title == "Sort & Filter" else {
+            throw PreviewError.filterDidNotClear
+        }
+        unrated.performClick(nil)
+        fiveStars.performClick(nil)
+        unrated.performClick(nil)
+        guard canvas.image == nil, fiveStars.state == .on else { throw PreviewError.filterDidNotApply }
     }
 
     /// Ensures the loading card stays compact and legible over retained pixels in both appearances.
@@ -567,6 +716,7 @@ enum RenderPreviews {
     private enum PreviewError: Error {
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, galleryFailed
         case galleryRatingPlacementFailed
+        case trashFailed
         case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed, loadingOverlayFailed
     }
 }
@@ -612,5 +762,37 @@ private final class ScanCheckpointGate: @unchecked Sendable {
         condition.lock()
         defer { condition.unlock() }
         finished = true
+    }
+}
+
+/// Holds an operation at its asynchronous boundary; only owned synthetic files are moved within the test directory.
+@MainActor
+private final class TrashPreviewOperation {
+    private let destination: URL
+    private var continuation: CheckedContinuation<Void, Error>?
+    private(set) var pendingURL: URL?
+
+    init(destination: URL) { self.destination = destination }
+
+    func move(_ url: URL, access: FileAccess) async throws {
+        defer { withExtendedLifetime(access) {} }
+        try await withCheckedThrowingContinuation { continuation in
+            self.pendingURL = url
+            self.continuation = continuation
+        }
+    }
+
+    func fail() {
+        pendingURL = nil
+        continuation?.resume(throwing: CocoaError(.fileWriteNoPermission))
+        continuation = nil
+    }
+
+    func succeed() throws {
+        guard let url = pendingURL else { throw CocoaError(.fileNoSuchFile) }
+        try FileManager.default.moveItem(at: url, to: destination.appendingPathComponent(url.lastPathComponent))
+        pendingURL = nil
+        continuation?.resume()
+        continuation = nil
     }
 }

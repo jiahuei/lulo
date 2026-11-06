@@ -2,7 +2,7 @@
 
 A simple, no-nonsense image viewer for macOS. Open an image, browse a folder, and take a closer look.
 
-Built with native macOS controls, Lulo keeps your images front and center and leaves the original files untouched. No editing, catalogs, accounts, or cloud services.
+Built with native macOS controls, Lulo keeps your images front and center without editing image contents. No editing, catalogs, accounts, or cloud services.
 
 - **Open JPEG, PNG, and HEIF images**, including JPG and HEIC files.
 - **Browse with the arrow keys** after granting access to the containing folder.
@@ -10,6 +10,7 @@ Built with native macOS controls, Lulo keeps your images front and center and le
 - **Fit, zoom, and pan** with fit-to-window and 100% views, scroll zoom, and drag panning.
 - **Inspect embedded metadata**, including camera settings, capture dates, and location when available.
 - **Sort** by name, capture time, star rating, or file type, and **filter** by rating and file type.
+- **Move unwanted images to Trash** with a confirmation and Command-Delete.
 - **Keep your preferences** for display and sorting between launches.
 
 Requires **macOS 14 or later**. Supports Apple Silicon and Intel Macs. RAW images are not supported.
