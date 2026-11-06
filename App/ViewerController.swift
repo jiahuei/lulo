@@ -215,12 +215,14 @@ final class ViewerController: NSWindowController {
         heading.font = .systemFont(ofSize: 15, weight: .semibold)
         let reset = NSButton(title: "Clear Filters", target: self, action: #selector(clearFilters))
         let ratings = NSGridView(views: [
-            [ratingButtons[0], ratingButtons[1]],
-            [ratingButtons[2], ratingButtons[3]],
-            [ratingButtons[4], ratingButtons[5]],
+            [ratingButtons[0], ratingButtons[3]],
+            [ratingButtons[1], ratingButtons[4]],
+            [ratingButtons[2], ratingButtons[5]],
         ])
         ratings.rowSpacing = 8
         ratings.columnSpacing = 12
+        ratings.xPlacement = .fill
+        ratingButtons[0].widthAnchor.constraint(equalTo: ratingButtons[3].widthAnchor).isActive = true
         let formats = NSStackView(views: formatButtons)
         formats.spacing = 8
         let grid = NSGridView(views: [
