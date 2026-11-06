@@ -20,9 +20,9 @@ The sandbox grants read/write access only to user-selected files and folders to 
 
 ## Interface
 
-The image occupies the main workspace. A native unified toolbar contains Open Image, Previous/Next, the saved zoom default, Sort & Filter, Metadata, and Move to Trash. System fonts and semantic colors follow macOS light/dark appearance. The window title identifies the selected file.
+The image occupies the main workspace. A native unified toolbar contains a text button labeled Open, Previous/Next, the saved zoom default, Sort & Filter, Metadata, and Move to Trash. System fonts and semantic colors follow macOS light/dark appearance. The window title identifies the selected file.
 
-Sort & Filter opens a transient popover with labeled sort, direction, rating, and file-type controls. Changes apply immediately. The Sort & Filter button reports the number of active filters, and the status bar names those filters beside the image position. Clear Filters is available both in Sort & Filter and in the no-matches state. New explicit opens dismiss Sort & Filter and return keyboard focus to the image.
+Sort & Filter opens a transient popover with labeled sort and direction controls plus rating and file-type checkboxes. Changes apply immediately. The Sort & Filter button reports the number of active filters, and the status bar names those filters beside the image position. Clear Filters is available both in Sort & Filter and in the no-matches state. New explicit opens dismiss Sort & Filter and return keyboard focus to the image.
 
 The initial empty state offers Open Image, loading uses a compact translucent box with a native spinner and the incoming filename, and failed image loads offer Open Another Image. Navigation retains the previous image and its zoom/pan while loading, then swaps in the completed image at the saved display default. The loading filename follows the latest selection during rapid arrow presses; obsolete completions cannot hide its overlay. Metadata is cleared while loading so it cannot be mistaken for the incoming file. Errors and empty filters clear the retained image. Long loading filenames truncate in the middle, with the full name available to accessibility and a tooltip. The metadata inspector uses distinct group headings, secondary field labels, and selectable values with wrapping for long paths/comments. Its width is 300 points; the viewer supports windows down to 720 points wide.
 
@@ -47,8 +47,9 @@ The cache budget excludes the displayed image when evicted, the active decode, I
 - Descending reverses both primary values and filename tie-breaks.
 - Time Taken uses embedded Date Time Original, then file creation time. Embedded timezone offsets are honored; timestamps without offsets are compared as UTC wall-clock values rather than guessed local zones.
 - Files without the selected date/rating metadata form a group after known values in both directions. Within that group filenames determine order. This produces a transitive sort rather than a pairwise filename fallback that can contradict timestamp ordering.
-- Star filters match an exact rating. Unrated / 0 Stars includes absent, unsupported, and zero embedded ratings. Recognized XMP ratings are integers from 0 through 5; rejected/invalid ratings are treated as unrated.
-- Rating and file-type filters combine with AND. Each control initially includes all values.
+- Star checkboxes match exact ratings; multiple checked ratings combine with OR. Unrated / 0 Stars includes absent, unsupported, and zero embedded ratings. Recognized XMP ratings are integers from 0 through 5; rejected/invalid ratings are treated as unrated.
+- File-type checkboxes allow any combination of JPEG, PNG, and HEIF. Multiple checked types combine with OR.
+- Rating and file-type groups combine with AND. Each group starts unchecked, meaning all values; unchecking the last value also removes that group's restriction. Clear Filters unchecks both groups. The toolbar counts active groups, and the status bar lists checked values in rating/type order.
 - Filtering retains the selected image if it still matches; otherwise it selects the first image in the new ordered set. With no matches, the viewer displays “No images match the current filters.” Clearing filters selects the first image if the selection was empty.
 
 ## Metadata

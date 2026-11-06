@@ -55,14 +55,7 @@ enum RenderPreviews {
             settle()
             if let popover = app.windows.first(where: { $0 !== window && $0.isVisible && $0.contentView != nil }) {
                 try capture(popover, to: output.appendingPathComponent("browse-dark.png"))
-                guard
-                    let rating = descendants(popover.contentView!).compactMap({ $0 as? NSPopUpButton })
-                        .first(where: { $0.toolTip == "Filter by exact star rating" })
-                else {
-                    throw PreviewError.missingFilterControls
-                }
-                rating.selectItem(at: 6)
-                rating.sendAction(rating.action, to: rating.target)
+                try verifyFilterCheckboxes(popover: popover, viewer: window)
                 browse.performClick(nil)
                 settle()
                 guard let canvas = descendants(window.contentView!).compactMap({ $0 as? ImageCanvas }).first,
@@ -176,6 +169,57 @@ enum RenderPreviews {
             throw PreviewError.trashFailed
         }
         print("Verified Trash confirmation, cancellation, failure, next selection, last image, and stale completion.")
+    }
+
+    /// Ensures real checkbox actions retain multiple choices, intersect groups, and recover after deselection.
+    private static func verifyFilterCheckboxes(popover: NSWindow, viewer: NSWindow) throws {
+        let buttons = descendants(popover.contentView!).compactMap { $0 as? NSButton }
+        guard let unrated = buttons.first(where: { $0.title == "Unrated / 0 Stars" }),
+            let fiveStars = buttons.first(where: { $0.title == "5 Stars" }),
+            let jpeg = buttons.first(where: { $0.title == "JPEG" }),
+            let png = buttons.first(where: { $0.title == "PNG" }),
+            let clear = buttons.first(where: { $0.title == "Clear Filters" }),
+            let canvas = descendants(viewer.contentView!).compactMap({ $0 as? ImageCanvas }).first,
+            let browse = viewer.toolbar?.items.compactMap({ $0.view as? NSButton }).first(where: {
+                $0.title == "Sort & Filter"
+            })
+        else { throw PreviewError.missingFilterControls }
+        let choices = buttons.filter { $0.action == fiveStars.action }
+        guard choices.count == 9, choices.allSatisfy({ $0.state == .off }) else {
+            throw PreviewError.filterDidNotClear
+        }
+        guard
+            (choices + [clear]).allSatisfy({
+                popover.contentView!.bounds.contains($0.convert($0.bounds, to: popover.contentView))
+            })
+        else { throw PreviewError.missingFilterControls }
+        unrated.performClick(nil)
+        fiveStars.performClick(nil)
+        png.performClick(nil)
+        jpeg.performClick(nil)
+        guard unrated.state == .on, fiveStars.state == .on, png.state == .on, jpeg.state == .on,
+            canvas.image != nil, browse.title == "Sort & Filter (2)",
+            descendants(viewer.contentView!).compactMap({ $0 as? NSTextField }).contains(where: {
+                $0.stringValue == "Filtered by Unrated / 0 Stars, 5 Stars · JPEG, PNG"
+            })
+        else { throw PreviewError.filterDidNotApply }
+        // The synthetic PNG is unrated: either group's exclusion must hide it.
+        png.performClick(nil)
+        guard canvas.image == nil else { throw PreviewError.filterDidNotApply }
+        jpeg.performClick(nil)
+        let deadline = Date().addingTimeInterval(15)
+        while canvas.image == nil && Date() < deadline { settle() }
+        guard canvas.image != nil, browse.title == "Sort & Filter (1)" else {
+            throw PreviewError.filterDidNotClear
+        }
+        clear.performClick(nil)
+        guard choices.allSatisfy({ $0.state == .off }), browse.title == "Sort & Filter" else {
+            throw PreviewError.filterDidNotClear
+        }
+        unrated.performClick(nil)
+        fiveStars.performClick(nil)
+        unrated.performClick(nil)
+        guard canvas.image == nil, fiveStars.state == .on else { throw PreviewError.filterDidNotApply }
     }
 
     /// Ensures the loading card stays compact and legible over retained pixels in both appearances.
