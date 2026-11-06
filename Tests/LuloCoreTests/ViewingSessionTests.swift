@@ -15,6 +15,36 @@ private func names(_ session: ViewingSession) -> [String] {
     session.visibleEntries.map { $0.url.lastPathComponent }
 }
 
+/// Ensures gallery selection uses the current visible order and preserves viewer preferences and filters.
+@Test
+func gallerySelection() {
+    let first = entry("a.png", rating: 5)
+    let second = entry("b.png", rating: 5)
+    let excluded = entry("c.jpg", rating: 1)
+    var session = ViewingSession(preferences: Preferences(display: .actualSize, ascending: false))
+    session.open(first)
+    session.replaceEntries([first, second, excluded])
+    session.filter = ImageFilter(ratings: [5], formats: [.png])
+    session.sidebarVisible = true
+    let generation = session.generation
+    session.select(second.url)
+    #expect(session.selectedURL == second.url)
+    #expect(names(session) == ["b.png", "a.png"])
+    #expect(session.filter == ImageFilter(ratings: [5], formats: [.png]))
+    #expect(session.preferences.display == .actualSize)
+    #expect(session.sidebarVisible)
+    #expect(session.generation == generation)
+    session.select(excluded.url)
+    session.select(entry("outside.png").url)
+    #expect(session.selectedURL == second.url)
+    session.navigate(1)
+    #expect(session.selectedURL == first.url)
+    session.filter.ratings = [2]
+    session.reconcileSelection()
+    session.select(first.url)
+    #expect(session.selectedURL == nil)
+}
+
 /// Ensures every sort key reverses primary ordering and filename tie-breaks together.
 @Test(arguments: SortMethod.allCases)
 func sortInBothDirections(_ method: SortMethod) {

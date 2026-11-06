@@ -56,6 +56,7 @@ final class LuloApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(file)
         let view = NSMenuItem()
         view.submenu = NSMenu(title: "View")
+        view.submenu?.addItem(withTitle: "Toggle Gallery", action: #selector(toggleGallery), keyEquivalent: "g")
         view.submenu?.addItem(withTitle: "Previous Image", action: #selector(previousImage), keyEquivalent: "[")
         view.submenu?.addItem(withTitle: "Next Image", action: #selector(nextImage), keyEquivalent: "]")
         view.submenu?.addItem(withTitle: "Toggle Metadata", action: #selector(toggleMetadata), keyEquivalent: "i")
@@ -78,4 +79,5 @@ final class LuloApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func previousImage() { viewer?.previousImage() }
     @objc private func nextImage() { viewer?.nextImage() }
     @objc private func toggleMetadata() { viewer?.toggleSidebar() }
+    @objc private func toggleGallery() { viewer?.toggleGallery() }
 }

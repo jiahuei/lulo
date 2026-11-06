@@ -75,10 +75,182 @@ enum RenderPreviews {
             }
         }
         try verifyArrowNavigation(viewer)
+        try verifyCachedNavigation(fixture: fixture)
         try verifyObsoleteFolderScan(fixture: fixture)
+        try verifyGallery(fixture: fixture, output: output)
         try verifyTrashAction(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures the grid preserves ratings, previews, selection, and multi-select filters while disabling Trash.
+    private static func verifyGallery(fixture: URL, output: URL) throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let urls = (1...80).map { folder.appendingPathComponent("photo\($0).png") }
+        for (index, url) in urls.enumerated() {
+            if index < 6 {
+                try makeFixture(at: url, rating: (index + 1) % 6, orientation: index == 1 ? 6 : 1)
+            } else {
+                try FileManager.default.copyItem(at: fixture, to: url)
+            }
+        }
+        try Data().write(to: folder.appendingPathComponent("broken.jpg"))
+        let viewer = ViewerController()
+        guard let window = viewer.window, let root = window.contentView,
+            let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
+            let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let trash = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Trash" })?.view as? NSButton
+        else { throw PreviewError.galleryFailed }
+        defer { window.close() }
+        window.setContentSize(NSSize(width: 1000, height: 680))
+        func waitUntil(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                settle()
+            }
+            guard ready() else { throw PreviewError.galleryFailed }
+        }
+        func key(_ code: UInt16) throws {
+            let characters = code == 124 ? "\u{F703}" : "\r"
+            guard
+                let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters,
+                    isARepeat: false, keyCode: code)
+            else { throw PreviewError.galleryFailed }
+            collection.keyDown(with: event)
+        }
+        /// Ensures loaded and reused cells announce their own rating, including zero and missing ratings.
+        func thumbnailsReady() -> Bool {
+            let items = collection.visibleItems().filter { $0.textField?.stringValue != "broken.jpg" }
+            return !items.isEmpty
+                && items.allSatisfy {
+                    guard let name = $0.textField?.stringValue, let preview = $0.imageView,
+                        let image = preview.image
+                    else { return false }
+                    let rating = (1...5).first { name == "photo\($0).png" }
+                    let label = name + (rating.map { ", \($0) of 5 stars" } ?? "")
+                    return image.size.width <= 320 && image.size.height <= 320 && preview.accessibilityLabel() == label
+                }
+        }
+        viewer.open(urls[0])
+        try waitUntil { !canvas.isLoading && canvas.image != nil && window.attachedSheet == nil }
+        viewer.toggleGallery()
+        guard gallery.isHidden, collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
+        (window.attachedSheet as? NSOpenPanel)?.cancel(nil)
+        settle()
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        viewer.toggleGallery()
+        try waitUntil {
+            collection.numberOfItems(inSection: 0) == 81
+                && collection.visibleItems().contains { $0.imageView?.image != nil }
+        }
+        guard !gallery.isHidden, canvas.isHidden, collection.visibleItems().count < 81,
+            collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)],
+            !viewer.canTrashCurrentImage, !trash.isEnabled
+        else { throw PreviewError.galleryFailed }
+        viewer.trashCurrentImage()
+        guard window.attachedSheet == nil else { throw PreviewError.galleryFailed }
+        try waitUntil {
+            descendants(gallery).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Preview unavailable" }
+        }
+        try waitUntil { thumbnailsReady() }
+        // Overlay geometry must locate the actual pixels, including the rotated portrait fixture.
+        for index in 1...6 {
+            guard
+                let preview = collection.item(at: IndexPath(item: index, section: 0))?.imageView
+                    as? GalleryThumbnailView, let image = preview.image
+            else { throw PreviewError.galleryRatingPlacementFailed }
+            let rect = preview.displayedImageRect
+            guard abs(rect.width / rect.height - image.size.width / image.size.height) < 0.02,
+                abs(rect.midX - preview.bounds.midX) < 0.01,
+                abs(rect.midY - preview.bounds.midY) < 0.01,
+                index != 2 || rect.height > rect.width
+            else { throw PreviewError.galleryRatingPlacementFailed }
+        }
+        window.appearance = NSAppearance(named: .aqua)
+        settle()
+        try capture(window, to: output.appendingPathComponent("gallery-light.png"))
+        try key(124)
+        guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
+            throw PreviewError.galleryFailed
+        }
+        try key(36)
+        try waitUntil { gallery.isHidden && viewer.canTrashCurrentImage && window.title == "photo2.png" }
+        viewer.toggleGallery()
+        guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
+            throw PreviewError.galleryFailed
+        }
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.setContentSize(NSSize(width: 720, height: 480))
+        settle()
+        try waitUntil { thumbnailsReady() }
+        try capture(window, to: output.appendingPathComponent("gallery-compact-dark.png"))
+        for index in [80, 1, 70, 2] {
+            collection.scrollToItems(at: [IndexPath(item: index, section: 0)], scrollPosition: .centeredVertically)
+            settle()
+            try waitUntil { thumbnailsReady() }
+        }
+        // The existing filter controls must affect both views, including recovery from no matches.
+        guard
+            let browse = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
+                as? NSButton
+        else { throw PreviewError.galleryFailed }
+        browse.performClick(nil)
+        settle()
+        guard
+            let popover = NSApp.windows.first(where: {
+                $0 !== window && $0.isVisible
+                    && $0.contentView.map {
+                        descendants($0).compactMap { $0 as? NSButton }.contains {
+                            $0.title == "5 Stars"
+                        }
+                    } == true
+            }),
+            let fiveStars = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "5 Stars" }),
+            let fourStars = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "4 Stars" }),
+            let jpeg = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "JPEG" }),
+            let png = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "PNG" })
+        else { throw PreviewError.galleryFailed }
+        fiveStars.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 1 else { throw PreviewError.galleryFailed }
+        try waitUntil { thumbnailsReady() }
+        guard collection.item(at: IndexPath(item: 0, section: 0))?.textField?.stringValue == "photo5.png" else {
+            throw PreviewError.galleryFailed
+        }
+        fourStars.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.galleryFailed }
+        try waitUntil { thumbnailsReady() }
+        jpeg.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
+        png.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.galleryFailed }
+        try waitUntil { thumbnailsReady() }
+        png.performClick(nil)
+        browse.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 0,
+            let clear = descendants(gallery).compactMap({ $0 as? NSButton }).first(where: {
+                $0.title == "Clear Filters"
+            })
+        else { throw PreviewError.galleryFailed }
+        clear.performClick(nil)
+        try waitUntil { collection.numberOfItems(inSection: 0) == 81 }
+        // A new explicit open must close the gallery and discard its old cells and thumbnail requests.
+        viewer.open(fixture)
+        try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == fixture.lastPathComponent }
+        guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
+        print(
+            "Verified gallery permissions, rated thumbnails, keyboard opening, reuse, multi-select filters, Trash availability, and session reset."
+        )
     }
 
     /// Ensures Trash confirmation, cancellation, failure, navigation, and stale completion use the captured image.
@@ -297,12 +469,10 @@ enum RenderPreviews {
             let retainedImage = canvas.image
             let retainedScale = canvas.zoom.scale
             canvas.keyDown(with: event)
-            // The main actor has not yielded, so completion cannot race these loading-state assertions.
+            // Keep the previous pixels while checking the cache; a miss may show the overlay after yielding.
             guard canvas.image === retainedImage, canvas.zoom.scale == retainedScale, canvas.isLoading,
                 metadata.string.isEmpty,
-                descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
-                    $0.stringValue == window.title && !$0.isHiddenOrHasHiddenAncestor
-                })
+                descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).allSatisfy(\.isHidden)
             else { throw PreviewError.loadingOverlayFailed }
         }
         var index = 0
@@ -346,7 +516,68 @@ enum RenderPreviews {
         try waitUntil("navigation after error") {
             !canvas.isLoading && canvas.image != nil && metadata.string.contains("a.jpg")
         }
+        settle()
+        guard !canvas.isLoading else { throw PreviewError.loadingOverlayFailed }
         print("Verified arrow wrapping/reversal, rapid selections, and superseded explicit opens with the real photo.")
+    }
+
+    /// Ensures cached next/previous images replace the canvas without ever presenting a loading overlay.
+    private static func verifyCachedNavigation(fixture: URL) throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let urls = ["a.png", "b.png"].map { folder.appendingPathComponent($0) }
+        for url in urls { try FileManager.default.copyItem(at: fixture, to: url) }
+        let store = ImageStore()
+        let viewer = ViewerController(imageStore: store)
+        guard let window = viewer.window, let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let overlay = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first
+        else { throw PreviewError.navigationFailed }
+        defer { window.close() }
+        func waitWithoutOverlay(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                guard overlay.isHidden else { throw PreviewError.loadingOverlayFailed }
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            }
+            guard ready(), overlay.isHidden else { throw PreviewError.loadingOverlayFailed }
+        }
+        var warmed: Result<Void, Error>?
+        let warmup = Task {
+            do {
+                // The first explicit open starts generation 1; prewarm that same viewer session.
+                for url in urls { _ = try await store.load(at: url, generation: 1, access: FileAccess(url: folder)) }
+                warmed = .success(())
+            } catch { warmed = .failure(error) }
+        }
+        defer { warmup.cancel() }
+        try waitWithoutOverlay { warmed != nil }
+        try warmed?.get()
+        viewer.open(urls[0])
+        try waitWithoutOverlay { !canvas.isLoading && canvas.image != nil && window.attachedSheet == nil }
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        try waitWithoutOverlay {
+            descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "1 of 2" }
+        }
+        for forward in [true, false, true, false] {
+            let previous = canvas.image
+            // A cached selection must also dismiss loading feedback left by the previous selection.
+            canvas.showLoading(filename: "previous-request.png")
+            if forward { viewer.nextImage() } else { viewer.previousImage() }
+            guard canvas.isLoading, overlay.isHidden, canvas.image === previous else {
+                throw PreviewError.loadingOverlayFailed
+            }
+            try waitWithoutOverlay { !canvas.isLoading }
+            guard canvas.image != nil, canvas.image !== previous,
+                window.title == (forward ? "b.png" : "a.png")
+            else { throw PreviewError.navigationFailed }
+        }
+        // Drain any queued notifications: completion must not be followed by a stale loading overlay.
+        settle()
+        guard !canvas.isLoading, overlay.isHidden else { throw PreviewError.loadingOverlayFailed }
+        print("Verified cached next/previous navigation skips the loading overlay.")
     }
 
     /// Ensures a new explicit open cancels an active scan, retains its grant until exit, and rejects its results.
@@ -433,12 +664,13 @@ enum RenderPreviews {
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw PreviewError.captureFailed }
         try data.write(to: url)
         // Verify the rendered window contains a usable image area even with the inspector visible.
-        if let canvas = descendants(view).compactMap({ $0 as? ImageCanvas }).first {
+        if let canvas = descendants(view).compactMap({ $0 as? ImageCanvas }).first, !canvas.isHiddenOrHasHiddenAncestor
+        {
             guard canvas.frame.width >= 300, canvas.frame.height >= 250 else { throw PreviewError.clippedCanvas }
         }
     }
 
-    private static func makeFixture(at url: URL) throws {
+    private static func makeFixture(at url: URL, rating: Int? = nil, orientation: Int = 1) throws {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
             let context = CGContext(
                 data: nil, width: 1200, height: 800, bitsPerComponent: 8, bytesPerRow: 4800,
@@ -464,17 +696,27 @@ enum RenderPreviews {
             throw PreviewError.captureFailed
         }
         let properties: [CFString: Any] = [
+            kCGImagePropertyOrientation: orientation,
             kCGImagePropertyExifDictionary: [
                 "DateTimeOriginal": "2026:01:02 03:04:05", "FNumber": 2.8, "FocalLength": 35,
             ],
             kCGImagePropertyTIFFDictionary: ["Make": "Synthetic Camera", "Model": "Preview Fixture", "Artist": "Lulo"],
         ]
-        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        if let rating {
+            let metadata = CGImageMetadataCreateMutable()
+            guard CGImageMetadataSetValueWithPath(metadata, nil, "xmp:Rating" as CFString, String(rating) as CFString)
+            else { throw PreviewError.captureFailed }
+            CGImageDestinationAddImageAndMetadata(destination, image, metadata, properties as CFDictionary)
+        } else {
+            CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        }
         guard CGImageDestinationFinalize(destination) else { throw PreviewError.captureFailed }
     }
 
     private enum PreviewError: Error {
-        case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, trashFailed
+        case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, galleryFailed
+        case galleryRatingPlacementFailed
+        case trashFailed
         case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed, loadingOverlayFailed
     }
 }

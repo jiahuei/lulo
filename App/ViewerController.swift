@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
 final class ViewerController: NSWindowController {
     private var session = ViewingSession(preferences: Preferences(defaults: .standard))
     private let canvas = ImageCanvas()
+    private let gallery = GalleryView()
+    private let galleryButton = NSButton()
+    private var galleryVisible = false
     private let metadata = NSTextView()
     private let sidebar = NSScrollView()
     private let display = NSPopUpButton()
@@ -31,7 +34,7 @@ final class ViewerController: NSWindowController {
     private var fileAccess: FileAccess?
     private var folderAccess: FileAccess?
     private var folderPanel: NSOpenPanel?
-    private let imageStore = ImageStore()
+    private let imageStore: ImageStore
     private var loadTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
     private var navigationDirection = 1
@@ -39,9 +42,11 @@ final class ViewerController: NSWindowController {
     private var openedURL: URL?
 
     init(
+        imageStore: ImageStore = ImageStore(),
         discoverImages: @escaping DiscoverImages = { try ImageLoader.discover(in: $0, isCancelled: $1) },
         moveToTrash: @escaping MoveToTrash = { _ = try await ImageTrash().move(at: $0, access: $1) }
     ) {
+        self.imageStore = imageStore
         self.moveToTrash = moveToTrash
         self.discoverImages = discoverImages
         let window = NSWindow(
@@ -94,6 +99,11 @@ final class ViewerController: NSWindowController {
         info.setButtonType(.toggle)
         configureButton(trash, title: "Move to Trash", symbol: "trash", action: #selector(trashCurrentImage))
         configureButton(
+            galleryButton, title: "Show gallery", symbol: "square.grid.2x2", action: #selector(toggleGallery))
+        galleryButton.title = "Gallery"
+        galleryButton.imagePosition = .imageLeading
+        galleryButton.setButtonType(.toggle)
+        configureButton(
             browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease", action: #selector(showBrowse))
         browse.title = "Sort & Filter"
         browse.imagePosition = .imageLeading
@@ -115,12 +125,24 @@ final class ViewerController: NSWindowController {
         sidebar.hasVerticalScroller = true
         sidebar.widthAnchor.constraint(equalToConstant: 300).isActive = true
         sidebar.isHidden = true
-        let content = NSStackView(views: [canvas, sidebar])
+        gallery.isHidden = true
+        let workspace = NSView()
+        for view in [canvas, gallery] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            workspace.addSubview(view)
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: workspace.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: workspace.trailingAnchor),
+                view.topAnchor.constraint(equalTo: workspace.topAnchor),
+                view.bottomAnchor.constraint(equalTo: workspace.bottomAnchor),
+            ])
+        }
+        let content = NSStackView(views: [workspace, sidebar])
         content.orientation = .horizontal
         content.alignment = .top
         content.distribution = .fill
         content.spacing = 0
-        canvas.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        workspace.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         status.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         status.textColor = .secondaryLabelColor
@@ -144,7 +166,7 @@ final class ViewerController: NSWindowController {
             content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             content.bottomAnchor.constraint(equalTo: footer.topAnchor),
-            canvas.heightAnchor.constraint(equalTo: content.heightAnchor),
+            workspace.heightAnchor.constraint(equalTo: content.heightAnchor),
             sidebar.heightAnchor.constraint(equalTo: content.heightAnchor),
             footer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -157,6 +179,13 @@ final class ViewerController: NSWindowController {
             filterSummary.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
         ])
         canvas.navigate = { [weak self] delta in self?.navigate(delta) }
+        gallery.selectionChanged = { [weak self] url in
+            guard let self else { return }
+            self.session.select(url)
+            self.updateStatus()
+        }
+        gallery.openSelection = { [weak self] in self?.showSelectedImage() }
+        gallery.clearFilters = { [weak self] in self?.clearFilters() }
         canvas.displayDefault = session.preferences.display
         canvas.resetZoom()
         canvas.showMessage(
@@ -231,7 +260,12 @@ final class ViewerController: NSWindowController {
         if browsePopover.isShown {
             browsePopover.performClose(nil)
         } else {
-            browsePopover.show(relativeTo: browse.bounds, of: browse, preferredEdge: .minY)
+            // Toolbar overflow detaches the button; anchor its popover inside the window in that case.
+            guard let anchor = browse.window == nil ? window?.contentView : browse else { return }
+            let bounds =
+                anchor === browse
+                ? browse.bounds : NSRect(x: anchor.bounds.maxX - 20, y: anchor.bounds.maxY - 1, width: 1, height: 1)
+            browsePopover.show(relativeTo: bounds, of: anchor, preferredEdge: .minY)
         }
     }
 
@@ -277,7 +311,7 @@ final class ViewerController: NSWindowController {
     }
 
     var canTrashCurrentImage: Bool {
-        session.selectedURL != nil && canvas.image != nil && !canvas.isLoading && !trashInProgress
+        !galleryVisible && session.selectedURL != nil && canvas.image != nil && !canvas.isLoading && !trashInProgress
             && window?.isVisible == true && window?.attachedSheet == nil
     }
 
@@ -357,7 +391,7 @@ final class ViewerController: NSWindowController {
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         browsePopover.performClose(nil)
-        window?.makeFirstResponder(canvas)
+        setGalleryVisible(false)
         folderPanel?.cancel(nil)
         folderPanel = nil
         worker.cancelAllOperations()
@@ -399,7 +433,7 @@ final class ViewerController: NSWindowController {
         }
     }
 
-    private func requestFolder(_ parent: URL, generation: Int) {
+    private func requestFolder(_ parent: URL, generation: Int, showGallery: Bool = false) {
         guard let window, folderPanel == nil else { return }
         let panel = NSOpenPanel()
         folderPanel = panel
@@ -417,6 +451,9 @@ final class ViewerController: NSWindowController {
             defer { self.updateStatus() }
             guard self.session.generation == generation, response == .OK, let url = panel.url else { return }
             self.useAuthorizedFolder(FileAccess(url: url))
+            if showGallery, self.folderAccess?.url.standardizedFileURL == parent {
+                self.setGalleryVisible(true)
+            }
         }
     }
 
@@ -474,6 +511,10 @@ final class ViewerController: NSWindowController {
         loadTask?.cancel()
         prefetchTask?.cancel()
         request += 1
+        guard !galleryVisible else {
+            updateStatus()
+            return
+        }
         let currentRequest = request
         metadata.string = ""
         guard let url = session.selectedURL else {
@@ -491,14 +532,19 @@ final class ViewerController: NSWindowController {
             updateStatus()
             return
         }
-        canvas.showLoading(filename: url.lastPathComponent)
+        canvas.beginLoading()
         window?.title = url.lastPathComponent
         let access = url == openedURL ? fileAccess : folderAccess
         let generation = session.generation
         let store = imageStore
         loadTask = Task { [weak self] in
             do {
-                let loaded = try await store.load(at: url, generation: generation, access: access)
+                let loaded = try await store.load(at: url, generation: generation, access: access) { [weak self] in
+                    _ = Task { @MainActor [weak self] in
+                        guard let self, self.request == currentRequest, self.canvas.isLoading else { return }
+                        self.canvas.showLoading(filename: url.lastPathComponent)
+                    }
+                }
                 guard !Task.isCancelled, let self, self.request == currentRequest else { return }
                 self.session.updateEntry(loaded.details.entry)
                 guard self.session.selectedURL == url else {
@@ -527,7 +573,7 @@ final class ViewerController: NSWindowController {
 
     private func prefetchNeighbor() {
         prefetchTask?.cancel()
-        guard canvas.image != nil, !canvas.isLoading, session.visibleEntries.count > 1 else { return }
+        guard !galleryVisible, canvas.image != nil, !canvas.isLoading, session.visibleEntries.count > 1 else { return }
         var neighbor = session
         neighbor.navigate(navigationDirection)
         guard let url = neighbor.selectedURL, url != session.selectedURL else { return }
@@ -544,6 +590,14 @@ final class ViewerController: NSWindowController {
 
     private func updateStatus() {
         let entries = session.visibleEntries
+        galleryButton.isEnabled = openedURL != nil
+        display.isEnabled = !galleryVisible
+        info.isEnabled = !galleryVisible
+        if galleryVisible, let folderAccess {
+            gallery.update(
+                entries: entries, selectedURL: session.selectedURL, folderAccess: folderAccess, fileAccess: fileAccess)
+            window?.title = folderAccess.url.lastPathComponent
+        }
         if let index = entries.firstIndex(where: { $0.url == session.selectedURL }) {
             status.stringValue = "\(index + 1) of \(entries.count)"
         } else {
@@ -569,6 +623,7 @@ final class ViewerController: NSWindowController {
         navigationDirection = delta < 0 ? -1 : 1
         session.navigate(delta)
         loadSelection()
+        if galleryVisible { gallery.focusSelection() }
     }
 
     @objc func previousImage() { navigate(-1) }
@@ -602,18 +657,60 @@ final class ViewerController: NSWindowController {
     }
 
     @objc func toggleSidebar() {
+        guard !galleryVisible else { return }
         session.sidebarVisible.toggle()
         info.state = session.sidebarVisible ? .on : .off
         info.setAccessibilityLabel(session.sidebarVisible ? "Hide metadata" : "Show metadata")
         sidebar.isHidden = !session.sidebarVisible
+    }
+
+    @objc func toggleGallery() {
+        guard let openedURL else { return }
+        let parent = openedURL.deletingLastPathComponent().standardizedFileURL
+        guard folderAccess?.url.standardizedFileURL == parent else {
+            galleryButton.state = .off
+            requestFolder(parent, generation: session.generation, showGallery: true)
+            return
+        }
+        setGalleryVisible(!galleryVisible)
+        if !galleryVisible { loadSelection() }
+    }
+
+    private func showSelectedImage() {
+        guard galleryVisible, session.selectedURL != nil else { return }
+        setGalleryVisible(false)
+        loadSelection()
+    }
+
+    private func setGalleryVisible(_ visible: Bool) {
+        galleryVisible = visible
+        galleryButton.state = visible ? .on : .off
+        galleryButton.toolTip = visible ? "Return to image" : "Show gallery"
+        galleryButton.setAccessibilityLabel(visible ? "Return to image" : "Show gallery")
+        canvas.isHidden = visible
+        gallery.isHidden = !visible
+        sidebar.isHidden = visible || !session.sidebarVisible
+        if visible {
+            loadTask?.cancel()
+            prefetchTask?.cancel()
+            request += 1
+        } else {
+            gallery.clear()
+        }
+        updateStatus()
+        if visible {
+            gallery.focusSelection()
+        } else {
+            window?.makeFirstResponder(canvas)
+        }
     }
 }
 
 extension ViewerController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
-            .init("Open"), .init("Previous"), .init("Next"), .flexibleSpace, .init("Display"), .init("Browse"),
-            .init("Metadata"), .init("Trash"),
+            .init("Open"), .init("Gallery"), .init("Previous"), .init("Next"), .flexibleSpace, .init("Display"),
+            .init("Browse"), .init("Metadata"), .init("Trash"),
         ]
     }
 
@@ -636,6 +733,10 @@ extension ViewerController: NSToolbarDelegate {
         case "Previous":
             item.label = "Previous Image"
             item.view = previous
+        case "Gallery":
+            item.label = "Gallery"
+            item.view = galleryButton
+            item.visibilityPriority = .high
         case "Next":
             item.label = "Next Image"
             item.view = next
@@ -645,6 +746,7 @@ extension ViewerController: NSToolbarDelegate {
         case "Browse":
             item.label = "Sort & Filter"
             item.view = browse
+            item.visibilityPriority = .high
         case "Trash":
             item.label = "Move to Trash"
             item.view = trash

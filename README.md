@@ -6,6 +6,7 @@ Built with native macOS controls, Lulo keeps your images front and center withou
 
 - **Open JPEG, PNG, and HEIF images**, including JPG and HEIC files.
 - **Browse with the arrow keys** after granting access to the containing folder.
+- **See the folder at a glance** with Gallery (Command-G). Double-click a thumbnail or press Return to view the selected image.
 - **Fit, zoom, and pan** with fit-to-window and 100% views, scroll zoom, and drag panning.
 - **Inspect embedded metadata**, including camera settings, capture dates, and location when available.
 - **Sort** by name, capture time, star rating, or file type, and **filter** by rating and file type.
