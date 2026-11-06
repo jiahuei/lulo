@@ -247,12 +247,21 @@ private final class GalleryItem: NSCollectionViewItem {
 }
 
 @MainActor
-private final class GalleryThumbnailView: NSImageView {
+final class GalleryThumbnailView: NSImageView {
     var rating: Int? { didSet { needsDisplay = true } }
+
+    var displayedImageRect: NSRect {
+        guard let image else { return .zero }
+        let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
+        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+        return NSRect(
+            x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
+            width: size.width, height: size.height)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard image != nil, let rating, (1...5).contains(rating), let cell else { return }
+        guard image != nil, let rating, (1...5).contains(rating) else { return }
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black
         shadow.shadowBlurRadius = 2
@@ -264,7 +273,7 @@ private final class GalleryThumbnailView: NSImageView {
                 .foregroundColor: NSColor.systemYellow, .shadow: shadow,
             ])
         // Anchor to the displayed pixels so letterboxing does not put ratings outside portrait images.
-        let imageRect = cell.imageRect(forBounds: bounds)
+        let imageRect = displayedImageRect
         let y = isFlipped ? imageRect.minY + 3 : imageRect.maxY - stars.size().height - 3
         stars.draw(at: NSPoint(x: imageRect.minX + 4, y: y))
     }

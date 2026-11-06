@@ -162,12 +162,18 @@ enum RenderPreviews {
             descendants(gallery).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Preview unavailable" }
         }
         try waitUntil { thumbnailsReady() }
-        // Image-cell geometry must locate the actual pixels, including the rotated portrait fixture.
+        // Overlay geometry must locate the actual pixels, including the rotated portrait fixture.
         for index in 1...6 {
-            guard let preview = collection.item(at: IndexPath(item: index, section: 0))?.imageView,
-                let image = preview.image, let rect = preview.cell?.imageRect(forBounds: preview.bounds),
-                abs(rect.width / rect.height - image.size.width / image.size.height) < 0.02
-            else { throw PreviewError.galleryFailed }
+            guard
+                let preview = collection.item(at: IndexPath(item: index, section: 0))?.imageView
+                    as? GalleryThumbnailView, let image = preview.image
+            else { throw PreviewError.galleryRatingPlacementFailed }
+            let rect = preview.displayedImageRect
+            guard abs(rect.width / rect.height - image.size.width / image.size.height) < 0.02,
+                abs(rect.midX - preview.bounds.midX) < 0.01,
+                abs(rect.midY - preview.bounds.midY) < 0.01,
+                index != 2 || rect.height > rect.width
+            else { throw PreviewError.galleryRatingPlacementFailed }
         }
         window.appearance = NSAppearance(named: .aqua)
         settle()
@@ -560,6 +566,7 @@ enum RenderPreviews {
 
     private enum PreviewError: Error {
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, galleryFailed
+        case galleryRatingPlacementFailed
         case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed, loadingOverlayFailed
     }
 }
