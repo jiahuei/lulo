@@ -67,6 +67,8 @@ The command compiles the current view/controller with a small preview entry poin
 
 Cached-navigation checks prewarm the real image store and verify both Next and Previous replace the image without presenting a loading overlay, including when the preceding request left an overlay visible. Package tests verify that loading feedback is requested for cache misses, eviction, changed files, and new sessions, but not for hits, canceled queued work, or reused completed prefetches.
 
+Toolbar checks exercise both zoom segments after manual zoom, verify the applied and persisted default, and restore each choice in a new viewer. Filter checks verify active-group counts through the icon button's accessibility label and tooltip. Gallery checks also verify that the zoom toggle is disabled in the grid and re-enabled in the image viewer.
+
 Gallery checks use 80 synthetic images and one corrupt file to exercise permission refusal, thumbnail loading, keyboard selection/opening, returning to the selected image, cell reuse during scrolling, accessibility labels for embedded one-to-five/zero/missing ratings, portrait/landscape image geometry used to position overlays, multiple rating/type filter selections and recovery, disabled Trash in gallery mode, and clearing the gallery on a new explicit open. The harness also saves regular light and compact dark gallery captures for [manual visual verification](docs/MACOS-VERIFICATION.md).
 
 This unsandboxed development helper is not bundled with Lulo. View captures establish layout evidence; they do not establish Finder integration, sandbox enforcement, mouse/trackpad behavior, display color fidelity, or VoiceOver behavior. The interactive checklist remains required.
