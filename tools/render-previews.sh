@@ -12,13 +12,4 @@ xcrun swiftc -swift-version 6 -parse-as-library \
     "$preview_sources/Presentation.swift" "$preview_sources/ViewerController.swift" tools/RenderPreviews.swift \
     "$products/LuloCore.o" "$products/LuloImaging.o" \
     -o build/LuloPreview
-if build/LuloPreview "$preview_output"; then
-    exit 0
-else
-    preview_status=$?
-    if [[ "$preview_status" -eq 133 ]]; then
-        # A native layout exception bypasses Swift error handling; retain its stack in CI.
-        xcrun lldb --batch -o run -o 'thread backtrace all' -- build/LuloPreview "$preview_output" || true
-    fi
-    exit "$preview_status"
-fi
+build/LuloPreview "$preview_output"

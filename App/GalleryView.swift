@@ -8,7 +8,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
     private let scroll = NSScrollView()
     private let emptyState = NSStackView()
     private let emptyDetail = NSTextField(wrappingLabelWithString: "")
-    private let heading = NSTextField(labelWithString: "")
+    private let heading = NSTextField(wrappingLabelWithString: "")
     private let count = NSTextField(labelWithString: "")
     private let poster = NSView()
     private let posterImage = NSImageView()
@@ -110,16 +110,30 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
                 x: side, y: 0, width: max(1, bounds.width - side * 2), height: max(1, bounds.height - 82))
         } else {
             let posterWidth: CGFloat = compact ? 300 : max(340, bounds.width * 0.4)
-            heading.frame = NSRect(x: 32, y: bounds.height - 78, width: posterWidth - 60, height: 68)
-            count.frame = NSRect(x: 32, y: bounds.height - 104, width: posterWidth - 60, height: 22)
+            let titleWidth = posterWidth - 60
+            let titleHeight = min(
+                104,
+                max(
+                    44,
+                    heading.cell?.cellSize(
+                        forBounds:
+                            NSRect(x: 0, y: 0, width: titleWidth, height: 104)
+                    ).height ?? 44))
+            heading.frame = NSRect(x: 32, y: bounds.height - titleHeight - 10, width: titleWidth, height: titleHeight)
+            count.frame = NSRect(x: 32, y: heading.frame.minY - 26, width: titleWidth, height: 22)
             count.alignment = .left
-            poster.frame = NSRect(x: 32, y: 10, width: posterWidth - 60, height: max(1, bounds.height - 124))
+            poster.frame = NSRect(x: 32, y: 10, width: posterWidth - 60, height: max(1, count.frame.minY - 20))
+            let availableHeight = max(1, poster.bounds.height - 86)
+            let sourceSize = posterImage.image?.size ?? NSSize(width: 3, height: 2)
+            let imageHeight = min(availableHeight, poster.bounds.width * sourceSize.height / max(1, sourceSize.width))
             posterImage.frame = NSRect(
-                x: 0, y: 86, width: poster.bounds.width, height: max(1, poster.bounds.height - 86))
-            caption.frame = NSRect(x: 0, y: 58, width: max(1, poster.bounds.width - 48), height: 24)
-            posterRating.frame = NSRect(x: poster.bounds.width - 43, y: 61, width: 40, height: 19)
-            exposure.frame = NSRect(x: 0, y: 0, width: max(1, poster.bounds.width - 60), height: 52)
-            viewButton.frame = NSRect(x: poster.bounds.width - 58, y: 14, width: 58, height: 28)
+                x: 0, y: poster.bounds.height - imageHeight,
+                width: poster.bounds.width, height: imageHeight)
+            let captionY = posterImage.frame.minY - 30
+            caption.frame = NSRect(x: 0, y: captionY, width: max(1, poster.bounds.width - 48), height: 24)
+            posterRating.frame = NSRect(x: poster.bounds.width - 43, y: captionY + 3, width: 40, height: 19)
+            exposure.frame = NSRect(x: 0, y: captionY - 54, width: max(1, poster.bounds.width - 60), height: 52)
+            viewButton.frame = NSRect(x: poster.bounds.width - 58, y: captionY - 40, width: 58, height: 28)
             scroll.frame = NSRect(
                 x: posterWidth + 8, y: 0, width: max(1, bounds.width - posterWidth - 30),
                 height: max(1, bounds.height - 10))
@@ -167,6 +181,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
             ofSize: mode == .rows ? 34 : min(44, max(30, bounds.width * 0.035)),
             weight: mode == .rows ? .semibold : .bold)
         heading.maximumNumberOfLines = mode == .rows ? 1 : 2
+        heading.lineBreakMode = mode == .rows ? .byTruncatingTail : .byWordWrapping
         let number = entries.count == totalCount ? "\(totalCount) images" : "\(entries.count) of \(totalCount) images"
         count.stringValue =
             mode == .rows
@@ -203,6 +218,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         fullPreview = details != nil
         posterImage.image = NSImage(cgImage: image, size: .zero)
         posterImage.setAccessibilityLabel(caption.stringValue)
+        needsLayout = true
         if let details {
             let fields = Dictionary(uniqueKeysWithValues: details.groups.flatMap(\.fields).map { ($0.name, $0.value) })
             let captured = details.entry.capturedAt.map { $0.formatted(date: .abbreviated, time: .shortened) }
@@ -230,6 +246,8 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
     func clear() {
         cancelVisibleThumbnails()
         entries = []
+        collectionLayout.aspectRatios = []
+        collectionLayout.invalidateLayout()
         selectedURL = nil
         posterImage.image = nil
         collection.reloadData()

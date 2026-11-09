@@ -51,9 +51,15 @@ enum RenderPreviews {
         viewer.toggleSidebar()
         settle()
         try capture(window, to: output.appendingPathComponent("metadata-light.png"))
+        viewer.toggleBlurredBackground()
+        for _ in 0..<5 { settle() }
+        try capture(window, to: output.appendingPathComponent("metadata-blurred-light.png"))
         window.appearance = NSAppearance(named: .darkAqua)
         window.setContentSize(NSSize(width: 720, height: 480))
         settle()
+        try capture(window, to: output.appendingPathComponent("metadata-blurred-compact-dark.png"))
+        viewer.toggleBlurredBackground()
+        for _ in 0..<3 { settle() }
         try capture(window, to: output.appendingPathComponent("metadata-compact-dark.png"))
         try verifyLoadingOverlay(window, output: output)
         FileHandle.standardError.write(Data("Checking D9 Sort & Filter popover.\n".utf8))
@@ -431,11 +437,25 @@ enum RenderPreviews {
                     slider.accessibilityLabel() == (preview ? "Thumbnail size" : "Row height")
                 else { throw PreviewError.galleryFailed }
                 let before = slider.doubleValue
+                guard
+                    let arrow = NSEvent.keyEvent(
+                        with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                        windowNumber: window.windowNumber, context: nil, characters: "\u{F703}",
+                        charactersIgnoringModifiers: "\u{F703}", isARepeat: false, keyCode: 124)
+                else { throw PreviewError.galleryFailed }
+                window.makeFirstResponder(slider)
+                slider.keyDown(with: arrow)
+                guard slider.doubleValue == before + (preview ? 6 : 10), collection.selectionIndexPaths == selected
+                else {
+                    throw PreviewError.galleryFailed
+                }
+                viewer.smallerThumbnails()
                 viewer.largerThumbnails()
                 guard slider.doubleValue > before, collection.selectionIndexPaths == selected else {
                     throw PreviewError.galleryFailed
                 }
-                viewer.smallerThumbnails()
+                slider.doubleValue = before
+                slider.sendAction(slider.action, to: slider.target)
                 let required = ["Files", "Navigation", "Display", "Actions"]
                 guard
                     required.allSatisfy({ name in
@@ -861,7 +881,14 @@ enum RenderPreviews {
         try waitUntil { canvas.image != nil && !canvas.isLoading && window.attachedSheet == nil }
         guard refresh.isEnabled, hasStatus("1 of 1"),
             let rating = descendants(root).compactMap({ $0 as? NSTextField }).first(where: { $0.stringValue == "★ 1" })
-        else { throw PreviewError.refreshFailed(line: #line) }
+        else {
+            let labels = descendants(root).compactMap { ($0 as? NSTextField)?.stringValue }
+            FileHandle.standardError.write(
+                Data(
+                    "Refresh setup: enabled=\(refresh.isEnabled), canRefresh=\(viewer.canRefresh), labels=\(labels)\n"
+                        .utf8))
+            throw PreviewError.refreshFailed(line: #line)
+        }
         viewer.toggleSidebar()
         for stars in [2, 3, 4, 5, 0, nil, 1] as [Int?] {
             try makeFixture(at: first, rating: stars)
