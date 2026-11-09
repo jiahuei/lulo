@@ -80,6 +80,8 @@ enum RenderPreviews {
         try verifyCachedNavigation(fixture: fixture)
         try verifyObsoleteFolderScan(fixture: fixture)
         try verifyGallery(fixture: fixture, output: output)
+        try verifyRefreshAndRatings(output: output)
+        try verifyAutomaticRefresh()
         try verifyTrashAction(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
@@ -680,6 +682,204 @@ enum RenderPreviews {
             "Verified an active scan stops after one metadata read, preserves the new session, and releases its grant.")
     }
 
+    /// Ensures Refresh updates pixels, ratings, and folder membership while keeping the current view and selection.
+    private static func verifyRefreshAndRatings(output: URL) throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = folder.appendingPathComponent("a.png")
+        let second = folder.appendingPathComponent("b.png")
+        let third = folder.appendingPathComponent("c.png")
+        try makeFixture(at: first, rating: 1)
+        try makeFixture(at: second, rating: 2)
+        let viewer = ViewerController(automaticallyRefresh: false)
+        guard let window = viewer.window, let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
+            let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
+            let refresh = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Refresh" })?.view
+                as? NSButton
+        else { throw PreviewError.refreshFailed }
+        defer { window.close() }
+        func waitUntil(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                settle()
+            }
+            guard ready() else { throw PreviewError.refreshFailed }
+        }
+        func hasStatus(_ text: String) -> Bool {
+            descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == text }
+        }
+        viewer.open(first)
+        try waitUntil { canvas.image != nil && !canvas.isLoading && window.attachedSheet == nil }
+        guard refresh.isEnabled, hasStatus("1 of 1"),
+            let rating = descendants(root).compactMap({ $0 as? NSTextField }).first(where: { $0.stringValue == "★" })
+        else { throw PreviewError.refreshFailed }
+        viewer.toggleSidebar()
+        for stars in [2, 3, 4, 5, 0, nil, 1] as [Int?] {
+            try makeFixture(at: first, rating: stars)
+            let previous = canvas.image
+            refresh.performClick(nil)
+            guard rating.isHidden else { throw PreviewError.refreshFailed }
+            try waitUntil { canvas.image != nil && canvas.image !== previous && !canvas.isLoading }
+            let count = stars ?? 0
+            guard rating.stringValue == String(repeating: "★", count: count), rating.isHidden == (count == 0),
+                hasStatus("1 of 1"), window.title == "a.png"
+            else { throw PreviewError.refreshFailed }
+            if count > 0 {
+                guard rating.accessibilityLabel() == "\(count) \(count == 1 ? "star" : "stars")" else {
+                    throw PreviewError.refreshFailed
+                }
+            }
+        }
+        // A filtered-out single file must reappear when its refreshed rating now matches.
+        guard
+            let browse = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
+                as? NSButton
+        else { throw PreviewError.refreshFailed }
+        browse.performClick(nil)
+        settle()
+        guard
+            let popover = NSApp.windows.first(where: {
+                guard $0 !== window, $0.isVisible, let content = $0.contentView else { return false }
+                return descendants(content).compactMap { $0 as? NSButton }.contains { $0.title == "5 Stars" }
+            }),
+            let fiveStars = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "5 Stars" }),
+            let clearFilters = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "Clear Filters" })
+        else { throw PreviewError.refreshFailed }
+        fiveStars.performClick(nil)
+        guard canvas.image == nil, rating.isHidden else { throw PreviewError.refreshFailed }
+        try makeFixture(at: first, rating: 5)
+        viewer.refreshImages()
+        try waitUntil { canvas.image != nil && !canvas.isLoading }
+        guard fiveStars.state == .on, rating.stringValue == "★★★★★" else { throw PreviewError.refreshFailed }
+        clearFilters.performClick(nil)
+        browse.performClick(nil)
+        try makeFixture(at: first, rating: 1)
+        viewer.refreshImages()
+        try waitUntil { !canvas.isLoading && rating.stringValue == "★" }
+        // Refresh must bypass the cache even when no file attributes changed.
+        let previous = canvas.image
+        refresh.performClick(nil)
+        try waitUntil { canvas.image !== previous && !canvas.isLoading }
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            window.setContentSize(NSSize(width: 720, height: 480))
+            settle()
+            try capture(window, to: output.appendingPathComponent("viewer-rating-\(appearance.rawValue).png"))
+        }
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        try waitUntil { hasStatus("1 of 2") }
+        viewer.toggleGallery()
+        try waitUntil {
+            collection.visibleItems().count == 2 && collection.visibleItems().allSatisfy { $0.imageView?.image != nil }
+        }
+        guard rating.isHidden, refresh.isEnabled else { throw PreviewError.refreshFailed }
+        let originalThumbnail = collection.item(at: IndexPath(item: 0, section: 0))?.imageView?.image
+        // ImageEntry has no dimensions; this replacement must reload even when the entry array compares equal.
+        try makeFixture(at: first, rating: 1, orientation: 6)
+        refresh.performClick(nil)
+        try waitUntil {
+            guard let image = collection.item(at: IndexPath(item: 0, section: 0))?.imageView?.image else {
+                return false
+            }
+            return image !== originalThumbnail && image.size.height > image.size.width
+        }
+        try makeFixture(at: third, rating: 5)
+        try FileManager.default.removeItem(at: second)
+        refresh.performClick(nil)
+        try waitUntil { collection.visibleItems().contains { $0.textField?.stringValue == "c.png" } }
+        guard collection.numberOfItems(inSection: 0) == 2,
+            collection.selectionIndexPaths == [IndexPath(item: 0, section: 0)], !gallery.isHidden
+        else { throw PreviewError.refreshFailed }
+        // The directly opened file must disappear too, rather than being appended back into discovery.
+        try FileManager.default.removeItem(at: first)
+        refresh.performClick(nil)
+        try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
+        viewer.toggleGallery()
+        try waitUntil { !canvas.isLoading && canvas.image != nil && window.title == "c.png" }
+        guard rating.stringValue == "★★★★★", !rating.isHidden else { throw PreviewError.refreshFailed }
+        try Data("corrupt".utf8).write(to: third)
+        refresh.performClick(nil)
+        try waitUntil { !canvas.isLoading && canvas.image == nil }
+        guard rating.isHidden else { throw PreviewError.refreshFailed }
+        try FileManager.default.removeItem(at: third)
+        refresh.performClick(nil)
+        try waitUntil { hasStatus("0 images") && hasStatus("No images remaining") }
+        print("Verified manual refresh, folder additions/deletions, thumbnail replacement, and viewer ratings.")
+    }
+
+    /// Ensures actual filesystem changes refresh single-file and folder sessions without a button click.
+    private static func verifyAutomaticRefresh() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = folder.appendingPathComponent("a.png")
+        let second = folder.appendingPathComponent("b.png")
+        try makeFixture(at: first, rating: 1)
+        let viewer = ViewerController()
+        guard let window = viewer.window, let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
+            let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first
+        else { throw PreviewError.refreshFailed }
+        defer { window.close() }
+        func waitUntil(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                settle()
+            }
+            guard ready() else { throw PreviewError.refreshFailed }
+        }
+        func hasLabel(_ text: String) -> Bool {
+            descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == text }
+        }
+        viewer.open(first)
+        try waitUntil { canvas.image != nil && !canvas.isLoading && window.attachedSheet == nil }
+        // Give the single-file monitor its initial snapshot before replacing the file.
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        try makeFixture(at: second, rating: 2)
+        try makeFixture(at: first, rating: 5, orientation: 6)
+        try waitUntil { hasLabel("★★★★★") && canvas.image?.height == 1200 && !canvas.isLoading }
+        guard hasLabel("1 of 1") else { throw PreviewError.refreshFailed }
+        try FileManager.default.removeItem(at: first)
+        try waitUntil { !canvas.isLoading && canvas.image == nil }
+        try makeFixture(at: first, rating: 3)
+        try waitUntil { canvas.image != nil && !canvas.isLoading && hasLabel("★★★") }
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        try waitUntil { hasLabel("1 of 2") }
+        viewer.toggleGallery()
+        let third = folder.appendingPathComponent("c.png")
+        try makeFixture(at: third, rating: 4)
+        try FileManager.default.removeItem(at: second)
+        try waitUntil {
+            collection.visibleItems().contains { $0.textField?.stringValue == "c.png" && $0.imageView?.image != nil }
+        }
+        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.refreshFailed }
+        try FileManager.default.removeItem(at: first)
+        try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
+        viewer.toggleGallery()
+        try waitUntil { window.title == "c.png" && !canvas.isLoading && canvas.image != nil && hasLabel("★★★★") }
+        // A new session must stop observing the previous folder and reject already queued callbacks.
+        let otherFolder = folder.appendingPathComponent("other", isDirectory: true)
+        try FileManager.default.createDirectory(at: otherFolder, withIntermediateDirectories: true)
+        let other = otherFolder.appendingPathComponent("new.png")
+        try makeFixture(at: other)
+        viewer.open(other)
+        try waitUntil { window.title == "new.png" && !canvas.isLoading && window.attachedSheet == nil }
+        try FileManager.default.removeItem(at: third)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        guard window.title == "new.png", canvas.image != nil, hasLabel("1 of 1") else {
+            throw PreviewError.refreshFailed
+        }
+        print("Verified automatic replacement, deletion/recreation, folder discovery, and session isolation.")
+    }
+
     private static func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
 
     private static func descendants(_ view: NSView) -> [NSView] {
@@ -749,7 +949,7 @@ enum RenderPreviews {
         case displayToggleFailed
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, galleryFailed
         case galleryRatingPlacementFailed
-        case trashFailed
+        case trashFailed, refreshFailed
         case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed, loadingOverlayFailed
     }
 }

@@ -71,6 +71,8 @@ Toolbar checks exercise both zoom segments after manual zoom, verify the applied
 
 Gallery checks use 80 synthetic images and one corrupt file to exercise permission refusal, thumbnail loading, keyboard selection/opening, returning to the selected image, cell reuse during scrolling, accessibility labels for embedded one-to-five/zero/missing ratings, portrait/landscape image geometry used to position overlays, multiple rating/type filter selections and recovery, disabled Trash in gallery mode, and clearing the gallery on a new explicit open. The harness also saves regular light and compact dark gallery captures for [manual visual verification](docs/MACOS-VERIFICATION.md).
 
+Refresh checks exercise the real toolbar in both views, cache bypass without file-attribute changes, thumbnail orientation changes, folder additions/deletions, removal of the directly opened file, and empty/error recovery. Viewer-rating checks cover one through five, zero/missing ratings, accessibility labels, and light/dark captures. Automatic-refresh checks modify temporary files without clicking Refresh, covering single-file replacement/deletion/recreation, folder events, and opening another session. These checks still require the sandbox and visual verification below.
+
 This unsandboxed development helper is not bundled with Lulo. View captures establish layout evidence; they do not establish Finder integration, sandbox enforcement, mouse/trackpad behavior, display color fidelity, or VoiceOver behavior. The interactive checklist remains required.
 
 ## Navigation performance and photo regression
