@@ -3,6 +3,11 @@ import Testing
 
 @testable import LuloCore
 
+// Apple's geometry helpers live in CoreGraphics; Linux Foundation provides them directly.
+#if canImport(CoreGraphics)
+    import CoreGraphics
+#endif
+
 /// Ensures fit preserves the whole image with unused viewport space and responds to resize/backing changes.
 @Test
 func fitGeometry() {

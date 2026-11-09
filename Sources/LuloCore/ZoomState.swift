@@ -1,5 +1,10 @@
 import Foundation
 
+// Apple's geometry helpers live in CoreGraphics; Linux Foundation provides them directly.
+#if canImport(CoreGraphics)
+    import CoreGraphics
+#endif
+
 public enum ViewingMode: String, CaseIterable, Sendable {
     case fit = "Fit to Window"
     case actualSize = "100%"
