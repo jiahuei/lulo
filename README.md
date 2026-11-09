@@ -13,7 +13,7 @@ Built with native macOS controls, Lulo keeps your images front and center. No ed
 - **Inspect embedded metadata**, including camera settings, capture dates, and location when available.
 - **Sort** by name, capture time, star rating, or file type, and **filter** by rating and file type.
 - **Move unwanted images to Trash** with a confirmation and Command-Delete.
-- **Keep your preferences** for display and sorting between launches.
+- **Keep your sorting preferences** between launches. Viewing starts in Fit to Window; navigation preserves the selected fit/100% mode and relative viewing position.
 
 Requires **macOS 14 or later**. Supports Apple Silicon and Intel Macs. RAW images are not supported.
 

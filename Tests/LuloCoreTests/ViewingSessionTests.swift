@@ -21,7 +21,7 @@ func gallerySelection() {
     let first = entry("a.png", rating: 5)
     let second = entry("b.png", rating: 5)
     let excluded = entry("c.jpg", rating: 1)
-    var session = ViewingSession(preferences: Preferences(display: .actualSize, ascending: false))
+    var session = ViewingSession(preferences: Preferences(ascending: false))
     session.open(first)
     session.replaceEntries([first, second, excluded])
     session.filter = ImageFilter(ratings: [5], formats: [.png])
@@ -31,7 +31,7 @@ func gallerySelection() {
     #expect(session.selectedURL == second.url)
     #expect(names(session) == ["b.png", "a.png"])
     #expect(session.filter == ImageFilter(ratings: [5], formats: [.png]))
-    #expect(session.preferences.display == .actualSize)
+    #expect(!session.preferences.ascending)
     #expect(session.sidebarVisible)
     #expect(session.generation == generation)
     session.select(excluded.url)
@@ -188,7 +188,10 @@ func preferencePersistenceAndSessionReset() throws {
     let defaults = try #require(UserDefaults(suiteName: name))
     defer { defaults.removePersistentDomain(forName: name) }
     #expect(Preferences(defaults: defaults) == Preferences())
-    let saved = Preferences(display: .actualSize, sort: .rating, ascending: false)
+    // Legacy zoom defaults must not influence new viewer sessions.
+    defaults.set("100%", forKey: "displayDefault")
+    #expect(Preferences(defaults: defaults) == Preferences())
+    let saved = Preferences(sort: .rating, ascending: false)
     saved.save(to: defaults)
     var session = ViewingSession(preferences: Preferences(defaults: defaults))
     #expect(session.preferences == saved)
@@ -255,7 +258,7 @@ func retainedOrderTracksEveryInput() {
 /// Ensures Trash selects the next image matching multiple ratings/types, wraps, and preserves preferences.
 @Test(arguments: [true, false])
 func removalPreservesNavigation(_ ascending: Bool) {
-    var session = ViewingSession(preferences: Preferences(display: .actualSize, ascending: ascending))
+    var session = ViewingSession(preferences: Preferences(ascending: ascending))
     let first = entry("a.png", rating: 4)
     let middle = entry("b.jpeg", rating: 5)
     let last = entry("c.png", rating: 5)
@@ -275,7 +278,7 @@ func removalPreservesNavigation(_ ascending: Bool) {
     #expect(session.visibleEntries.isEmpty)
     #expect(session.entries == [excluded])
     #expect(session.filter == ImageFilter(ratings: [4, 5], formats: [.jpeg, .png]))
-    #expect(session.preferences == Preferences(display: .actualSize, ascending: ascending))
+    #expect(session.preferences == Preferences(ascending: ascending))
     #expect(session.sidebarVisible)
     #expect(session.generation == generation)
     session.filter = ImageFilter()

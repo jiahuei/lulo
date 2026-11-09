@@ -38,7 +38,7 @@ enum RenderPreviews {
             throw PreviewError.imageDidNotLoad
         }
         settle()
-        try verifyDisplayToggle(window)
+        try verifyDisplayToggle(viewer)
         try capture(window, to: output.appendingPathComponent("image-light.png"))
         viewer.toggleSidebar()
         settle()
@@ -87,31 +87,52 @@ enum RenderPreviews {
         window.close()
     }
 
-    /// Ensures each zoom segment updates the image and saved default, including restoration in a new viewer.
-    private static func verifyDisplayToggle(_ window: NSWindow) throws {
-        guard let root = window.contentView,
+    /// Ensures the toolbar selects the current mode, double-click stays in sync, and new viewers always start in fit.
+    private static func verifyDisplayToggle(_ viewer: ViewerController) throws {
+        guard let window = viewer.window, let root = window.contentView,
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
             let display = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Display" })?.view
                 as? NSSegmentedControl,
-            display.selectedSegment == 0, canvas.displayDefault == .fit, canvas.zoom.scale == nil
+            display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
         else { throw PreviewError.displayToggleFailed }
-        for (segment, expected) in [(1, DisplayDefault.actualSize), (0, DisplayDefault.fit)] {
+        for (segment, expected) in [(1, ViewingMode.actualSize), (1, .actualSize), (0, .fit), (0, .fit)] {
             canvas.zoom.scroll(up: true, currentScale: 2)
             display.selectedSegment = segment
             display.sendAction(display.action, to: display.target)
-            guard canvas.displayDefault == expected,
-                canvas.zoom.scale == (expected == .fit ? nil : 1),
-                Preferences(defaults: .standard).display == expected
+            guard canvas.zoom.mode == expected,
+                canvas.zoom.scale == (expected == .fit ? nil : 1)
             else { throw PreviewError.displayToggleFailed }
+            let cursor = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
+            try doubleClick(canvas, at: cursor)
+            guard display.selectedSegment == (segment == 0 ? 1 : 0),
+                canvas.zoom.scale == (expected == .fit ? 1 : nil)
+            else { throw PreviewError.displayToggleFailed }
+            try doubleClick(canvas, at: cursor)
+            guard display.selectedSegment == segment else { throw PreviewError.displayToggleFailed }
             let restored = ViewerController()
             defer { restored.window?.close() }
             guard
                 let restoredDisplay = restored.window?.toolbar?.items.first(where: {
                     $0.itemIdentifier.rawValue == "Display"
                 })?.view as? NSSegmentedControl,
-                restoredDisplay.selectedSegment == segment
+                restoredDisplay.selectedSegment == 0
             else { throw PreviewError.displayToggleFailed }
         }
+        canvas.resetZoom(to: .actualSize)
+        window.close()
+        viewer.showWindow(nil)
+        guard canvas.zoom.mode == .fit, canvas.zoom.scale == nil, display.selectedSegment == 0 else {
+            throw PreviewError.displayToggleFailed
+        }
+    }
+
+    private static func doubleClick(_ canvas: ImageCanvas, at point: CGPoint) throws {
+        guard let window = canvas.window,
+            let event = NSEvent.mouseEvent(
+                with: .leftMouseDown, location: canvas.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 2, pressure: 1)
+        else { throw PreviewError.displayToggleFailed }
+        canvas.mouseDown(with: event)
     }
 
     /// Ensures the grid preserves ratings, previews, selection, and multi-select filters while disabling Trash.
@@ -173,8 +194,11 @@ enum RenderPreviews {
         }
         viewer.open(urls[0])
         try waitUntil { !canvas.isLoading && canvas.image != nil && window.attachedSheet == nil }
+        canvas.resetZoom(to: .actualSize)
         viewer.toggleGallery()
-        guard gallery.isHidden, collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
+        guard gallery.isHidden, collection.numberOfItems(inSection: 0) == 0, canvas.zoom.mode == .actualSize else {
+            throw PreviewError.galleryFailed
+        }
         (window.attachedSheet as? NSOpenPanel)?.cancel(nil)
         settle()
         viewer.useAuthorizedFolder(FileAccess(url: folder))
@@ -185,7 +209,8 @@ enum RenderPreviews {
         }
         guard !gallery.isHidden, canvas.isHidden, collection.visibleItems().count < 81,
             collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)],
-            !viewer.canTrashCurrentImage, !trash.isEnabled, !display.isEnabled
+            !viewer.canTrashCurrentImage, !trash.isEnabled, !display.isEnabled,
+            display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
         else { throw PreviewError.galleryFailed }
         viewer.trashCurrentImage()
         guard window.attachedSheet == nil else { throw PreviewError.galleryFailed }
@@ -215,7 +240,9 @@ enum RenderPreviews {
         }
         try key(36)
         try waitUntil { gallery.isHidden && viewer.canTrashCurrentImage && window.title == "photo2.png" }
-        guard display.isEnabled else { throw PreviewError.displayToggleFailed }
+        guard display.isEnabled, display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil else {
+            throw PreviewError.displayToggleFailed
+        }
         viewer.toggleGallery()
         guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
             throw PreviewError.galleryFailed
@@ -521,6 +548,48 @@ enum RenderPreviews {
                 throw PreviewError.navigationFailed
             }
         }
+        // An off-center double-click must preserve the image point under the cursor in AppKit coordinates.
+        let fitRect = canvas.displayedImageRect
+        let imagePoint = CGPoint(x: 0.6, y: 0.65)
+        let cursor = CGPoint(
+            x: fitRect.minX + fitRect.width * imagePoint.x,
+            y: fitRect.minY + fitRect.height * imagePoint.y)
+        try doubleClick(canvas, at: cursor)
+        let zoomedRect = canvas.displayedImageRect
+        guard canvas.zoom.mode == .actualSize, canvas.zoom.scale == 1,
+            abs(zoomedRect.minX + zoomedRect.width * imagePoint.x - cursor.x) < 0.01,
+            abs(zoomedRect.minY + zoomedRect.height * imagePoint.y - cursor.y) < 0.01
+        else { throw PreviewError.displayToggleFailed }
+        let dragEnd = CGPoint(x: cursor.x + 20, y: cursor.y - 15)
+        for (type, point) in [
+            (NSEvent.EventType.leftMouseDown, cursor), (.leftMouseDragged, dragEnd), (.leftMouseUp, dragEnd),
+        ] {
+            guard
+                let event = NSEvent.mouseEvent(
+                    with: type, location: canvas.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            else { throw PreviewError.displayToggleFailed }
+            switch type {
+            case .leftMouseDown: canvas.mouseDown(with: event)
+            case .leftMouseDragged: canvas.mouseDragged(with: event)
+            default: canvas.mouseUp(with: event)
+            }
+        }
+        let actualRect = canvas.displayedImageRect
+        guard abs(actualRect.minX - zoomedRect.minX - 20) < 0.01,
+            abs(actualRect.minY - zoomedRect.minY + 15) < 0.01
+        else { throw PreviewError.displayToggleFailed }
+        let center = canvas.zoom.center
+        for direction in [1, 1, -1, -1] {
+            try arrow(direction)
+            index = (index + direction + urls.count) % urls.count
+            try waitUntil("zoomed arrow") {
+                !canvas.isLoading && metadata.string.contains(urls[index].lastPathComponent)
+            }
+            guard canvas.zoom.mode == .actualSize, canvas.zoom.scale == 1,
+                canvas.zoom.center == center, canvas.displayedImageRect == actualRect
+            else { throw PreviewError.displayToggleFailed }
+        }
         // Queue rapid selections without waiting for intermediate decodes, including a direction reversal.
         for direction in [1, 1, 1, -1, 1, -1, -1] {
             try arrow(direction)
@@ -529,15 +598,21 @@ enum RenderPreviews {
         try waitUntil("arrow to \(urls[index].lastPathComponent)") {
             canvas.image != nil && !canvas.isLoading && metadata.string.contains(urls[index].lastPathComponent)
         }
-        guard window.title == urls[index].lastPathComponent else { throw PreviewError.navigationFailed }
+        guard window.title == urls[index].lastPathComponent, canvas.zoom.scale == 1,
+            canvas.zoom.center == center
+        else { throw PreviewError.navigationFailed }
         viewer.open(urls[0])
         viewer.open(urls[2])
         try waitUntil("superseded open") { canvas.image != nil && metadata.string.contains("c.jpg") }
-        guard window.title == "c.jpg" else { throw PreviewError.navigationFailed }
+        guard window.title == "c.jpg", canvas.zoom.mode == .fit, canvas.zoom.scale == nil,
+            canvas.zoom.center == CGPoint(x: 0.5, y: 0.5)
+        else { throw PreviewError.navigationFailed }
         try waitUntil("rediscovery after explicit opens") {
             descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "3 of 3" }
         }
-        // Invalidating a cached neighbor must clear the retained pixels on failure and allow another arrow.
+        // Invalidating a cached neighbor must clear the retained pixels without losing the viewing mode/region.
+        try doubleClick(canvas, at: cursor)
+        let errorCenter = canvas.zoom.center
         try Data("corrupt image".utf8).write(to: urls[1])
         try arrow(-1)
         try waitUntil("recoverable error") { !canvas.isLoading && canvas.image == nil }
@@ -551,7 +626,9 @@ enum RenderPreviews {
             !canvas.isLoading && canvas.image != nil && metadata.string.contains("a.jpg")
         }
         settle()
-        guard !canvas.isLoading else { throw PreviewError.loadingOverlayFailed(line: #line) }
+        guard !canvas.isLoading, canvas.zoom.mode == .actualSize, canvas.zoom.scale == 1,
+            canvas.zoom.center == errorCenter
+        else { throw PreviewError.loadingOverlayFailed(line: #line) }
         print("Verified arrow wrapping/reversal, rapid selections, and superseded explicit opens with the real photo.")
     }
 
