@@ -11,7 +11,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private lazy var gallery = GalleryView(loader: thumbnailLoader)
     private let galleryButton = CapsuleButton()
     private var galleryVisible = false
-    private let metadata = NSTextView()
+    private let metadata = MetadataTextView()
     private let sidebar = NSScrollView()
     private let display = CapsuleSegments()
     private let sorting = CapsuleSegments()
@@ -35,7 +35,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private let backgroundRenderer = BackgroundRenderer()
     private let blurred = CapsuleButton()
     private let galleryLayout = CapsuleSegments()
-    private let sizeSlider = NSSlider()
+    private let sizeSlider = ThumbnailSizeSlider()
     private let smaller = CapsuleButton()
     private let larger = CapsuleButton()
     private let refreshSpinner = NSProgressIndicator()
@@ -401,6 +401,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     }
 
     private func showMetadata(_ details: ImageDetails) {
+        metadata.dividerLocations = []
         let text = NSMutableAttributedString(
             string: details.entry.url.lastPathComponent + "\n",
             attributes: [
@@ -422,6 +423,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
                     ]))
         }
         for group in details.groups where !group.fields.isEmpty {
+            metadata.dividerLocations.append(text.length)
             let heading = NSMutableParagraphStyle()
             heading.paragraphSpacingBefore = text.length == 0 ? 0 : 18
             heading.paragraphSpacing = 8
@@ -968,17 +970,22 @@ extension ViewerController {
     @objc func smallerThumbnails() { changeThumbnailSize(-2) }
     private func changeThumbnailSize(_ steps: Double) {
         guard galleryVisible else { return }
-        sizeSlider.doubleValue += steps * session.preferences.galleryLayout.sizeStep
-        thumbnailSizeChanged()
+        let mode = session.preferences.galleryLayout
+        saveThumbnailSize(mode.clampedSize(sizeSlider.doubleValue + steps * mode.sizeStep))
     }
     @objc private func thumbnailSizeChanged() {
         let mode = session.preferences.galleryLayout
-        let value = mode.clampedSize(sizeSlider.doubleValue)
-        // Keep Preview's specified default (128) while each adjustment advances by six points.
-        if mode == .rows {
-            session.preferences.rowsTargetHeight = (value / 10).rounded() * 10
+        let value =
+            sizeSlider.keyboardAdjustment
+            ? sizeSlider.doubleValue
+            : mode.defaultSize + ((sizeSlider.doubleValue - mode.defaultSize) / mode.sizeStep).rounded() * mode.sizeStep
+        saveThumbnailSize(mode.clampedSize(value))
+    }
+    private func saveThumbnailSize(_ value: Double) {
+        if session.preferences.galleryLayout == .rows {
+            session.preferences.rowsTargetHeight = value
         } else {
-            session.preferences.previewTileSize = mode.clampedSize(128 + ((value - 128) / 6).rounded() * 6)
+            session.preferences.previewTileSize = value
         }
         session.preferences.save(to: .standard)
         updateStatus()
@@ -999,6 +1006,7 @@ extension ViewerController {
         sliderWidth?.constant = width < 900 ? 64 : 92
         let mode = session.preferences.galleryLayout
         galleryLayout.selectedSegment = mode == .rows ? 0 : 1
+        sizeSlider.step = mode.sizeStep
         sizeSlider.minValue = mode.sizeRange.lowerBound
         sizeSlider.maxValue = mode.sizeRange.upperBound
         sizeSlider.doubleValue =

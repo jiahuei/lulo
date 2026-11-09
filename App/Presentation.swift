@@ -1,6 +1,4 @@
 import AppKit
-// Only the current 320 px thumbnail and its two appearance variants are retained by the background.
-// Core Image work runs on its own actor so it cannot delay full-resolution decoding or gallery thumbnails.
 import CoreImage
 import LuloCore
 import LuloImaging
@@ -279,6 +277,8 @@ struct BackgroundImages: @unchecked Sendable {
     let dark: CGImage
 }
 
+// Only the current thumbnail variants are retained. Core Image work has its own actor
+// so it cannot delay full-resolution decoding or gallery thumbnails.
 actor BackgroundRenderer {
     private let context = CIContext(options: [.cacheIntermediates: false])
     func render(_ thumbnail: LoadedThumbnail) -> BackgroundImages? {
@@ -371,5 +371,42 @@ final class ViewerBackground: NSView {
             wash.withAlphaComponent(dark ? 0.30 : 0.70).cgColor,
         ]
         vignette.colors = [NSColor.clear.cgColor, NSColor.black.withAlphaComponent(dark ? 0.35 : 0).cgColor]
+    }
+}
+
+@MainActor
+final class ThumbnailSizeSlider: NSSlider {
+    var step = 10.0
+    var keyboardAdjustment = false
+    override func keyDown(with event: NSEvent) {
+        guard event.keyCode == 123 || event.keyCode == 124 else {
+            super.keyDown(with: event)
+            return
+        }
+        keyboardAdjustment = true
+        doubleValue = min(maxValue, max(minValue, doubleValue + (event.keyCode == 124 ? step : -step)))
+        sendAction(action, to: target)
+        keyboardAdjustment = false
+    }
+}
+
+@MainActor
+final class MetadataTextView: NSTextView {
+    var dividerLocations: [Int] = []
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let layoutManager, let textContainer else { return }
+        ViewerColors.stroke.setStroke()
+        for location in dividerLocations where location < (string as NSString).length {
+            let glyphs = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: location, length: 1), actualCharacterRange: nil)
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+            let y = rect.minY + textContainerOrigin.y - 8
+            let rule = NSBezierPath()
+            rule.lineWidth = 0.5
+            rule.move(to: NSPoint(x: textContainerInset.width, y: y))
+            rule.line(to: NSPoint(x: bounds.width - textContainerInset.width, y: y))
+            rule.stroke()
+        }
     }
 }

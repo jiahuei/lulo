@@ -169,12 +169,21 @@ final class ImageCanvas: NSView {
         guard let image, let context = NSGraphicsContext.current?.cgContext else { return }
         let rect = displayedImageRect
         context.interpolationQuality = scale >= 1 ? .none : .high
+        // Draw only the shadow outside the photo; an opaque shadow backing would turn
+        // transparent PNG pixels black and drawing the image twice would change their alpha.
         context.saveGState()
+        context.addRect(bounds.insetBy(dx: -120, dy: -120))
+        context.addRect(rect)
+        context.clip(using: .evenOdd)
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         context.setShadow(
-            offset: CGSize(width: 0, height: -20), blur: 60, color: NSColor.black.withAlphaComponent(0.42).cgColor)
-        context.setFillColor(NSColor.black.cgColor)
-        context.addPath(CGPath(roundedRect: rect, cornerWidth: 3, cornerHeight: 3, transform: nil))
-        context.fillPath()
+            offset: CGSize(width: 0, height: -20), blur: dark ? 90 : 60,
+            color: NSColor.black.withAlphaComponent(dark ? 0.85 : 0.42).cgColor)
+        context.draw(image, in: rect)
+        context.setShadow(
+            offset: CGSize(width: 0, height: -1), blur: dark ? 8 : 3,
+            color: NSColor.black.withAlphaComponent(dark ? 0.5 : 0.14).cgColor)
+        context.draw(image, in: rect)
         context.restoreGState()
         context.saveGState()
         context.addPath(CGPath(roundedRect: rect, cornerWidth: 3, cornerHeight: 3, transform: nil))

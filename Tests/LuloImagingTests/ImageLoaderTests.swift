@@ -31,7 +31,9 @@ func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 
         kCGImagePropertyExifDictionary: [
             "DateTimeOriginal": "2026:01:02 03:04:05", "FNumber": 2.8, "BodySerialNumber": "SYNTHETIC",
         ],
-        kCGImagePropertyTIFFDictionary: ["Make": "Synthetic Camera", "Artist": "Lulo Tests"],
+        kCGImagePropertyTIFFDictionary: [
+            "Make": "Synthetic Camera", "Artist": "Lulo Tests", "DateTime": "2026:02:03 04:05:06",
+        ],
     ]
     if let rating {
         let metadata = CGImageMetadataCreateMutable()
@@ -248,6 +250,8 @@ func entryDimensionsAndMetadataLabels(_ orientation: Int) throws {
         let fields = Dictionary(uniqueKeysWithValues: details.groups.flatMap(\.fields).map { ($0.name, $0.value) })
         #expect(fields["Dimensions"] == "\(details.width) × \(details.height)")
         #expect(fields["File Dimensions"] == nil && fields["Current Dimensions"] == nil)
+        #expect(fields["Date Time Captured"] == "2026:01:02 03:04:05")
+        #expect(fields["Date Time Modified"] == "2026:02:03 04:05:06")
         #expect(details.groups.last?.name == "Attribution and comments")
     }
 }
