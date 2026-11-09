@@ -12,7 +12,7 @@ final class ImageCanvas: NSView {
             needsDisplay = true
         }
     }
-    private let messageTitle = NSTextField(labelWithString: "")
+    private let messageTitle = NSTextField(wrappingLabelWithString: "")
     private let messageDetail = NSTextField(wrappingLabelWithString: "")
     private let messageButton = NSButton()
     private let progress = NSProgressIndicator()
@@ -23,6 +23,7 @@ final class ImageCanvas: NSView {
     var displayDefault = DisplayDefault.fit
     var zoom = ZoomState()
     var navigate: ((Int) -> Void)?
+    var zoomChanged: (() -> Void)?
     private var offset = CGPoint.zero
     private var dragOrigin: CGPoint?
     private(set) var isLoading = false
@@ -32,11 +33,11 @@ final class ImageCanvas: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityRole(.image)
-        messageTitle.font = .systemFont(ofSize: 24, weight: .semibold)
-        messageTitle.alignment = .center
-        messageDetail.font = .systemFont(ofSize: 13)
+        messageTitle.font = .systemFont(ofSize: 38, weight: .bold)
+        messageTitle.alignment = .left
+        messageDetail.font = .systemFont(ofSize: 14)
         messageDetail.textColor = .secondaryLabelColor
-        messageDetail.alignment = .center
+        messageDetail.alignment = .left
         messageButton.bezelStyle = .rounded
         messageButton.target = self
         messageButton.action = #selector(performMessageAction)
@@ -45,7 +46,7 @@ final class ImageCanvas: NSView {
         progress.isDisplayedWhenStopped = false
         progress.setAccessibilityLabel("Loading image")
         messageStack.orientation = .vertical
-        messageStack.alignment = .centerX
+        messageStack.alignment = .leading
         messageStack.spacing = 12
         for view in [messageTitle, messageDetail, messageButton] { messageStack.addArrangedSubview(view) }
         messageStack.setCustomSpacing(20, after: messageDetail)
@@ -63,7 +64,8 @@ final class ImageCanvas: NSView {
         loadingBox.blendingMode = .withinWindow
         loadingBox.state = .active
         loadingBox.wantsLayer = true
-        loadingBox.layer?.cornerRadius = 12
+        loadingBox.layer?.cornerRadius = 14
+        loadingBox.layer?.backgroundColor = ViewerColors.solid.cgColor
         loadingBox.layer?.masksToBounds = true
         loadingBox.isHidden = true
         loadingFilename.font = .systemFont(ofSize: 13, weight: .medium)
@@ -117,7 +119,7 @@ final class ImageCanvas: NSView {
 
     func showLoading(filename: String) {
         beginLoading()
-        loadingFilename.stringValue = filename
+        loadingFilename.stringValue = "Loading " + filename
         loadingFilename.toolTip = filename
         loadingBox.isHidden = false
         progress.startAnimation(nil)
@@ -149,15 +151,13 @@ final class ImageCanvas: NSView {
 
     private var scale: Double {
         guard let image else { return 1 }
-        let backing = convertToBacking(bounds.size)
+        let backing = convertToBacking(NSSize(width: max(1, bounds.width - 60), height: max(1, bounds.height - 60)))
         return zoom.effectiveScale(
             pixelWidth: Double(image.width), pixelHeight: Double(image.height),
             viewportWidth: backing.width, viewportHeight: backing.height, backingScale: 1)
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
-        bounds.fill()
         guard let image, let context = NSGraphicsContext.current?.cgContext else { return }
         let size = convertFromBacking(NSSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
         offset.x = max(-max(0, (size.width - bounds.width) / 2), min(max(0, (size.width - bounds.width) / 2), offset.x))
@@ -167,7 +167,24 @@ final class ImageCanvas: NSView {
             x: (bounds.width - size.width) / 2 + offset.x,
             y: (bounds.height - size.height) / 2 + offset.y, width: size.width, height: size.height)
         context.interpolationQuality = scale >= 1 ? .none : .high
+        context.saveGState()
+        context.setShadow(
+            offset: CGSize(width: 0, height: -20), blur: 60, color: NSColor.black.withAlphaComponent(0.42).cgColor)
+        context.setFillColor(NSColor.black.cgColor)
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: 3, cornerHeight: 3, transform: nil))
+        context.fillPath()
+        context.restoreGState()
+        context.saveGState()
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: 3, cornerHeight: 3, transform: nil))
+        context.clip()
         context.draw(image, in: rect)
+        context.restoreGState()
+        zoomChanged?()
+    }
+
+    var zoomDescription: String {
+        let percent = Int((scale * 100).rounded())
+        return zoom.scale == nil ? "Fit, \(percent)%" : "\(percent)%"
     }
 
     override func scrollWheel(with event: NSEvent) {

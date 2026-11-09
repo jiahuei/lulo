@@ -21,13 +21,18 @@ public struct ImageEntry: Equatable, Sendable {
     public let capturedAt: Date?
     public let createdAt: Date?
     public let rating: Int?
+    public let pixelSize: CGSize?
 
-    public init(url: URL, format: ImageFormat, capturedAt: Date? = nil, createdAt: Date? = nil, rating: Int? = nil) {
+    public init(
+        url: URL, format: ImageFormat, capturedAt: Date? = nil, createdAt: Date? = nil,
+        rating: Int? = nil, pixelSize: CGSize? = nil
+    ) {
         self.url = url
         self.format = format
         self.capturedAt = capturedAt
         self.createdAt = createdAt
         self.rating = rating
+        self.pixelSize = pixelSize
     }
 }
 
@@ -47,23 +52,44 @@ public struct Preferences: Equatable, Sendable {
     public var display: DisplayDefault
     public var sort: SortMethod
     public var ascending: Bool
+    public var blurredBackground: Bool
+    public var galleryLayout: GalleryLayout
+    public var rowsTargetHeight: Double
+    public var previewTileSize: Double
 
-    public init(display: DisplayDefault = .fit, sort: SortMethod = .name, ascending: Bool = true) {
+    public init(
+        display: DisplayDefault = .fit, sort: SortMethod = .name, ascending: Bool = true,
+        blurredBackground: Bool = false, galleryLayout: GalleryLayout = .rows,
+        rowsTargetHeight: Double = 200, previewTileSize: Double = 128
+    ) {
         self.display = display
         self.sort = sort
         self.ascending = ascending
+        self.blurredBackground = blurredBackground
+        self.galleryLayout = galleryLayout
+        self.rowsTargetHeight = GalleryLayout.rows.clampedSize(rowsTargetHeight)
+        self.previewTileSize = GalleryLayout.preview.clampedSize(previewTileSize)
     }
 
     public init(defaults: UserDefaults) {
         display = defaults.string(forKey: "displayDefault").flatMap(DisplayDefault.init(rawValue:)) ?? .fit
         sort = defaults.string(forKey: "sortMethod").flatMap(SortMethod.init(rawValue:)) ?? .name
         ascending = defaults.object(forKey: "sortAscending") as? Bool ?? true
+        blurredBackground = defaults.bool(forKey: "blurredBackground")
+        galleryLayout = defaults.string(forKey: "galleryLayout").flatMap(GalleryLayout.init(rawValue:)) ?? .rows
+        rowsTargetHeight = GalleryLayout.rows.clampedSize(defaults.object(forKey: "rowsTargetHeight") as? Double ?? 200)
+        previewTileSize = GalleryLayout.preview.clampedSize(
+            defaults.object(forKey: "previewTileSize") as? Double ?? 128)
     }
 
     public func save(to defaults: UserDefaults) {
         defaults.set(display.rawValue, forKey: "displayDefault")
         defaults.set(sort.rawValue, forKey: "sortMethod")
         defaults.set(ascending, forKey: "sortAscending")
+        defaults.set(blurredBackground, forKey: "blurredBackground")
+        defaults.set(galleryLayout.rawValue, forKey: "galleryLayout")
+        defaults.set(rowsTargetHeight, forKey: "rowsTargetHeight")
+        defaults.set(previewTileSize, forKey: "previewTileSize")
     }
 }
 
@@ -71,6 +97,8 @@ public struct Preferences: Equatable, Sendable {
 public struct ImageFilter: Equatable, Sendable {
     public var ratings: Set<Int>
     public var formats: Set<ImageFormat>
+
+    public var activeCount: Int { ratings.count + formats.count }
 
     public init(ratings: Set<Int> = [], formats: Set<ImageFormat> = []) {
         self.ratings = ratings

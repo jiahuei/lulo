@@ -115,7 +115,9 @@ public enum ImageLoader {
         }
         let createdAt = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate
         let capturedAt = captureDate(exif["DateTimeOriginal"] as? String, offset: exif["OffsetTimeOriginal"] as? String)
-        let entry = ImageEntry(url: url, format: format, capturedAt: capturedAt, createdAt: createdAt, rating: rating)
+        let entry = ImageEntry(
+            url: url, format: format, capturedAt: capturedAt, createdAt: createdAt, rating: rating,
+            pixelSize: CGSize(width: orientedWidth, height: orientedHeight))
         let dimensions = "\(orientedWidth) × \(orientedHeight)"
         func text(_ value: Any?) -> String? {
             guard let value else { return nil }
@@ -148,13 +150,14 @@ public enum ImageLoader {
                 "File",
                 [
                     ("File Name", url.lastPathComponent), ("File Path", url.path),
-                    ("File Dimensions", dimensions), ("Current Dimensions", dimensions),
+                    ("Dimensions", dimensions),
                 ]),
             group(
                 "Timestamps",
                 [
-                    ("Date Time Original", text(exif["DateTimeOriginal"])),
-                    ("Date Time Digitized", text(exif["DateTimeDigitized"])), ("Date Time", text(tiff["DateTime"])),
+                    ("Date Time Captured", text(exif["DateTimeOriginal"])),
+                    ("Date Time Digitized", text(exif["DateTimeDigitized"])),
+                    ("Date Time Modified", text(tiff["DateTime"])),
                 ]),
             group(
                 "Exposure",
@@ -178,16 +181,16 @@ public enum ImageLoader {
                     ("Serial Number", text(exif["BodySerialNumber"])), ("Lens", text(exif["LensModel"])),
                 ]),
             group(
-                "Attribution and comments",
-                [
-                    ("Artist", text(tiff["Artist"])), ("Software", text(tiff["Software"])),
-                    ("User Comment", text(exif["UserComment"])),
-                ]),
-            group(
                 "Location",
                 [
                     ("GPS", coordinates), ("Altitude", altitude),
                     ("Direction", text(gps["ImgDirection"]).map { "\($0)° \(text(gps["ImgDirectionRef"]) ?? "")" }),
+                ]),
+            group(
+                "Attribution and comments",
+                [
+                    ("Artist", text(tiff["Artist"])), ("Software", text(tiff["Software"])),
+                    ("User Comment", text(exif["UserComment"])),
                 ]),
         ]
         return ImageDetails(entry: entry, width: orientedWidth, height: orientedHeight, groups: groups)
