@@ -38,30 +38,21 @@ public enum SortMethod: String, CaseIterable, Sendable {
     case fileType = "File Type"
 }
 
-public enum DisplayDefault: String, CaseIterable, Sendable {
-    case fit = "Fit to Window"
-    case actualSize = "100%"
-}
-
 public struct Preferences: Equatable, Sendable {
-    public var display: DisplayDefault
     public var sort: SortMethod
     public var ascending: Bool
 
-    public init(display: DisplayDefault = .fit, sort: SortMethod = .name, ascending: Bool = true) {
-        self.display = display
+    public init(sort: SortMethod = .name, ascending: Bool = true) {
         self.sort = sort
         self.ascending = ascending
     }
 
     public init(defaults: UserDefaults) {
-        display = defaults.string(forKey: "displayDefault").flatMap(DisplayDefault.init(rawValue:)) ?? .fit
         sort = defaults.string(forKey: "sortMethod").flatMap(SortMethod.init(rawValue:)) ?? .name
         ascending = defaults.object(forKey: "sortAscending") as? Bool ?? true
     }
 
     public func save(to defaults: UserDefaults) {
-        defaults.set(display.rawValue, forKey: "displayDefault")
         defaults.set(sort.rawValue, forKey: "sortMethod")
         defaults.set(ascending, forKey: "sortAscending")
     }
