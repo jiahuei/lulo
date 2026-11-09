@@ -1086,6 +1086,11 @@ extension ViewerController {
     }
 
     func windowDidResize(_ notification: Notification) { updatePresentationControls() }
+
+    func windowDidEndSheet(_ notification: Notification) {
+        // Completion handlers can run while attachedSheet still disables Refresh and Trash.
+        updateStatus()
+    }
 }
 
 extension ViewerController: NSToolbarDelegate {
