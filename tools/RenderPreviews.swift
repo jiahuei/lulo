@@ -446,11 +446,11 @@ enum RenderPreviews {
                 canvas.bounds.contains(box.frame),
                 descendants(box).compactMap({ $0 as? NSTextField }).contains(where: { $0.stringValue == filename }),
                 descendants(box).contains(where: { $0 is NSProgressIndicator && !$0.isHidden })
-            else { throw PreviewError.loadingOverlayFailed }
+            else { throw PreviewError.loadingOverlayFailed(line: #line) }
             try capture(window, to: output.appendingPathComponent("loading-\(appearance.rawValue).png"))
         }
         canvas.image = image
-        guard !canvas.isLoading else { throw PreviewError.loadingOverlayFailed }
+        guard !canvas.isLoading else { throw PreviewError.loadingOverlayFailed(line: #line) }
     }
 
     /// Ensures real arrow events keep image/metadata selection consistent through reversals and rapid repeats.
@@ -507,7 +507,7 @@ enum RenderPreviews {
             guard canvas.image === retainedImage, canvas.zoom.scale == retainedScale, canvas.isLoading,
                 metadata.string.isEmpty,
                 descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).allSatisfy(\.isHidden)
-            else { throw PreviewError.loadingOverlayFailed }
+            else { throw PreviewError.loadingOverlayFailed(line: #line) }
         }
         var index = 0
         for direction in [1, 1, -1, -1] {
@@ -545,13 +545,13 @@ enum RenderPreviews {
             descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
                 $0.stringValue == "Cannot display this image" && !$0.isHiddenOrHasHiddenAncestor
             })
-        else { throw PreviewError.loadingOverlayFailed }
+        else { throw PreviewError.loadingOverlayFailed(line: #line) }
         try arrow(-1)
         try waitUntil("navigation after error") {
             !canvas.isLoading && canvas.image != nil && metadata.string.contains("a.jpg")
         }
         settle()
-        guard !canvas.isLoading else { throw PreviewError.loadingOverlayFailed }
+        guard !canvas.isLoading else { throw PreviewError.loadingOverlayFailed(line: #line) }
         print("Verified arrow wrapping/reversal, rapid selections, and superseded explicit opens with the real photo.")
     }
 
@@ -572,11 +572,11 @@ enum RenderPreviews {
         func waitWithoutOverlay(_ ready: () -> Bool) throws {
             let deadline = Date().addingTimeInterval(15)
             while !ready() && Date() < deadline {
-                guard overlay.isHidden else { throw PreviewError.loadingOverlayFailed }
+                guard overlay.isHidden else { throw PreviewError.loadingOverlayFailed(line: #line) }
                 if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
                 RunLoop.current.run(until: Date().addingTimeInterval(0.001))
             }
-            guard ready(), overlay.isHidden else { throw PreviewError.loadingOverlayFailed }
+            guard ready(), overlay.isHidden else { throw PreviewError.loadingOverlayFailed(line: #line) }
         }
         var warmed: Result<Void, Error>?
         let warmup = Task {
@@ -601,7 +601,7 @@ enum RenderPreviews {
             canvas.showLoading(filename: "previous-request.png")
             if forward { viewer.nextImage() } else { viewer.previousImage() }
             guard canvas.isLoading, overlay.isHidden, canvas.image === previous else {
-                throw PreviewError.loadingOverlayFailed
+                throw PreviewError.loadingOverlayFailed(line: #line)
             }
             try waitWithoutOverlay { !canvas.isLoading }
             guard canvas.image != nil, canvas.image !== previous,
@@ -610,7 +610,7 @@ enum RenderPreviews {
         }
         // Drain any queued notifications: completion must not be followed by a stale loading overlay.
         settle()
-        guard !canvas.isLoading, overlay.isHidden else { throw PreviewError.loadingOverlayFailed }
+        guard !canvas.isLoading, overlay.isHidden else { throw PreviewError.loadingOverlayFailed(line: #line) }
         print("Verified cached next/previous navigation skips the loading overlay.")
     }
 
@@ -699,7 +699,7 @@ enum RenderPreviews {
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
             let refresh = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Refresh" })?.view
                 as? NSButton
-        else { throw PreviewError.refreshFailed }
+        else { throw PreviewError.refreshFailed(line: #line) }
         defer { window.close() }
         func waitUntil(_ ready: () -> Bool) throws {
             let deadline = Date().addingTimeInterval(15)
@@ -707,7 +707,7 @@ enum RenderPreviews {
                 if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
                 settle()
             }
-            guard ready() else { throw PreviewError.refreshFailed }
+            guard ready() else { throw PreviewError.refreshFailed(line: #line) }
         }
         func hasStatus(_ text: String) -> Bool {
             descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == text }
@@ -716,21 +716,21 @@ enum RenderPreviews {
         try waitUntil { canvas.image != nil && !canvas.isLoading && window.attachedSheet == nil }
         guard refresh.isEnabled, hasStatus("1 of 1"),
             let rating = descendants(root).compactMap({ $0 as? NSTextField }).first(where: { $0.stringValue == "★" })
-        else { throw PreviewError.refreshFailed }
+        else { throw PreviewError.refreshFailed(line: #line) }
         viewer.toggleSidebar()
         for stars in [2, 3, 4, 5, 0, nil, 1] as [Int?] {
             try makeFixture(at: first, rating: stars)
             let previous = canvas.image
             refresh.performClick(nil)
-            guard rating.isHidden else { throw PreviewError.refreshFailed }
+            guard rating.isHidden else { throw PreviewError.refreshFailed(line: #line) }
             try waitUntil { canvas.image != nil && canvas.image !== previous && !canvas.isLoading }
             let count = stars ?? 0
             guard rating.stringValue == String(repeating: "★", count: count), rating.isHidden == (count == 0),
                 hasStatus("1 of 1"), window.title == "a.png"
-            else { throw PreviewError.refreshFailed }
+            else { throw PreviewError.refreshFailed(line: #line) }
             if count > 0 {
                 guard rating.accessibilityLabel() == "\(count) \(count == 1 ? "star" : "stars")" else {
-                    throw PreviewError.refreshFailed
+                    throw PreviewError.refreshFailed(line: #line)
                 }
             }
         }
@@ -738,7 +738,7 @@ enum RenderPreviews {
         guard
             let browse = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
                 as? NSButton
-        else { throw PreviewError.refreshFailed }
+        else { throw PreviewError.refreshFailed(line: #line) }
         browse.performClick(nil)
         settle()
         guard
@@ -750,13 +750,15 @@ enum RenderPreviews {
                 .first(where: { $0.title == "5 Stars" }),
             let clearFilters = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
                 .first(where: { $0.title == "Clear Filters" })
-        else { throw PreviewError.refreshFailed }
+        else { throw PreviewError.refreshFailed(line: #line) }
         fiveStars.performClick(nil)
-        guard canvas.image == nil, rating.isHidden else { throw PreviewError.refreshFailed }
+        guard canvas.image == nil, rating.isHidden else { throw PreviewError.refreshFailed(line: #line) }
         try makeFixture(at: first, rating: 5)
         viewer.refreshImages()
         try waitUntil { canvas.image != nil && !canvas.isLoading }
-        guard fiveStars.state == .on, rating.stringValue == "★★★★★" else { throw PreviewError.refreshFailed }
+        guard fiveStars.state == .on, rating.stringValue == "★★★★★" else {
+            throw PreviewError.refreshFailed(line: #line)
+        }
         clearFilters.performClick(nil)
         browse.performClick(nil)
         try makeFixture(at: first, rating: 1)
@@ -778,7 +780,7 @@ enum RenderPreviews {
         try waitUntil {
             collection.visibleItems().count == 2 && collection.visibleItems().allSatisfy { $0.imageView?.image != nil }
         }
-        guard rating.isHidden, refresh.isEnabled else { throw PreviewError.refreshFailed }
+        guard rating.isHidden, refresh.isEnabled else { throw PreviewError.refreshFailed(line: #line) }
         let originalThumbnail = collection.item(at: IndexPath(item: 0, section: 0))?.imageView?.image
         // ImageEntry has no dimensions; this replacement must reload even when the entry array compares equal.
         try makeFixture(at: first, rating: 1, orientation: 6)
@@ -795,18 +797,18 @@ enum RenderPreviews {
         try waitUntil { collection.visibleItems().contains { $0.textField?.stringValue == "c.png" } }
         guard collection.numberOfItems(inSection: 0) == 2,
             collection.selectionIndexPaths == [IndexPath(item: 0, section: 0)], !gallery.isHidden
-        else { throw PreviewError.refreshFailed }
+        else { throw PreviewError.refreshFailed(line: #line) }
         // The directly opened file must disappear too, rather than being appended back into discovery.
         try FileManager.default.removeItem(at: first)
         refresh.performClick(nil)
         try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
         viewer.toggleGallery()
         try waitUntil { !canvas.isLoading && canvas.image != nil && window.title == "c.png" }
-        guard rating.stringValue == "★★★★★", !rating.isHidden else { throw PreviewError.refreshFailed }
+        guard rating.stringValue == "★★★★★", !rating.isHidden else { throw PreviewError.refreshFailed(line: #line) }
         try Data("corrupt".utf8).write(to: third)
         refresh.performClick(nil)
         try waitUntil { !canvas.isLoading && canvas.image == nil }
-        guard rating.isHidden else { throw PreviewError.refreshFailed }
+        guard rating.isHidden else { throw PreviewError.refreshFailed(line: #line) }
         try FileManager.default.removeItem(at: third)
         refresh.performClick(nil)
         try waitUntil { hasStatus("0 images") && hasStatus("No images remaining") }
@@ -826,7 +828,7 @@ enum RenderPreviews {
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
             let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first
-        else { throw PreviewError.refreshFailed }
+        else { throw PreviewError.refreshFailed(line: #line) }
         defer { window.close() }
         func waitUntil(_ ready: () -> Bool) throws {
             let deadline = Date().addingTimeInterval(15)
@@ -834,7 +836,7 @@ enum RenderPreviews {
                 if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
                 settle()
             }
-            guard ready() else { throw PreviewError.refreshFailed }
+            guard ready() else { throw PreviewError.refreshFailed(line: #line) }
         }
         func hasLabel(_ text: String) -> Bool {
             descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == text }
@@ -846,7 +848,7 @@ enum RenderPreviews {
         try makeFixture(at: second, rating: 2)
         try makeFixture(at: first, rating: 5, orientation: 6)
         try waitUntil { hasLabel("★★★★★") && canvas.image?.height == 1200 && !canvas.isLoading }
-        guard hasLabel("1 of 1") else { throw PreviewError.refreshFailed }
+        guard hasLabel("1 of 1") else { throw PreviewError.refreshFailed(line: #line) }
         try FileManager.default.removeItem(at: first)
         try waitUntil { !canvas.isLoading && canvas.image == nil }
         try makeFixture(at: first, rating: 3)
@@ -860,7 +862,7 @@ enum RenderPreviews {
         try waitUntil {
             collection.visibleItems().contains { $0.textField?.stringValue == "c.png" && $0.imageView?.image != nil }
         }
-        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.refreshFailed }
+        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.refreshFailed(line: #line) }
         try FileManager.default.removeItem(at: first)
         try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
         viewer.toggleGallery()
@@ -875,7 +877,7 @@ enum RenderPreviews {
         try FileManager.default.removeItem(at: third)
         RunLoop.current.run(until: Date().addingTimeInterval(1.2))
         guard window.title == "new.png", canvas.image != nil, hasLabel("1 of 1") else {
-            throw PreviewError.refreshFailed
+            throw PreviewError.refreshFailed(line: #line)
         }
         print("Verified automatic replacement, deletion/recreation, folder discovery, and session isolation.")
     }
@@ -949,8 +951,10 @@ enum RenderPreviews {
         case displayToggleFailed
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, galleryFailed
         case galleryRatingPlacementFailed
-        case trashFailed, refreshFailed
-        case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed, loadingOverlayFailed
+        case trashFailed
+        case refreshFailed(line: Int)
+        case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed
+        case loadingOverlayFailed(line: Int)
     }
 }
 
