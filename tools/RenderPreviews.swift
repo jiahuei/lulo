@@ -84,6 +84,13 @@ enum RenderPreviews {
                 else {
                     throw PreviewError.filterDidNotApply
                 }
+                // Empty-state copy must use the available canvas width beside the metadata panel.
+                guard
+                    let title = descendants(canvas).compactMap({ $0 as? NSTextField })
+                        .first(where: { $0.stringValue == "No images match the current filters." }),
+                    title.bounds.width >= min(440, canvas.bounds.width - 48) - 1,
+                    canvas.bounds.contains(canvas.convert(clear.bounds, from: clear))
+                else { throw PreviewError.clippedCanvas }
                 try capture(window, to: output.appendingPathComponent("filtered-empty-dark.png"))
                 clear.performClick(nil)
                 let restoredDeadline = Date().addingTimeInterval(15)

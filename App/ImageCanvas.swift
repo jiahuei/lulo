@@ -49,6 +49,10 @@ final class ImageCanvas: NSView {
         messageStack.spacing = 12
         for view in [messageTitle, messageDetail, messageButton] { messageStack.addArrangedSubview(view) }
         messageStack.setCustomSpacing(20, after: messageDetail)
+        // Let the preferred measure expand wrapping labels beyond their intrinsic width.
+        for view in [messageStack, messageTitle, messageDetail] {
+            view.setContentHuggingPriority(.init(1), for: .horizontal)
+        }
         messageStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(messageStack)
         let preferredMessageWidth = messageStack.widthAnchor.constraint(equalToConstant: 440)
