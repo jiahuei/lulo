@@ -11,6 +11,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
     private var entries: [ImageEntry] = []
     private var folderAccess: FileAccess?
     private var fileAccess: FileAccess?
+    private var generation = 0
     var selectionChanged: ((URL) -> Void)?
     var openSelection: (() -> Void)?
     var clearFilters: (() -> Void)?
@@ -61,12 +62,15 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func update(entries: [ImageEntry], selectedURL: URL?, folderAccess: FileAccess, fileAccess: FileAccess?) {
+    func update(
+        entries: [ImageEntry], selectedURL: URL?, folderAccess: FileAccess, fileAccess: FileAccess?, generation: Int
+    ) {
         self.folderAccess = folderAccess
         self.fileAccess = fileAccess
-        if self.entries != entries {
+        if self.entries != entries || self.generation != generation {
             cancelVisibleThumbnails()
             self.entries = entries
+            self.generation = generation
             collection.reloadData()
         }
         scroll.isHidden = entries.isEmpty
@@ -116,7 +120,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
     ) {
         let url = entries[indexPath.item].url
         guard let access = fileAccess?.url == url ? fileAccess : folderAccess else { return }
-        (item as? GalleryItem)?.loadThumbnail(loader: loader, access: access)
+        (item as? GalleryItem)?.loadThumbnail(loader: loader, access: access, generation: generation)
     }
 
     func collectionView(
@@ -206,13 +210,13 @@ private final class GalleryItem: NSCollectionViewItem {
         updateSelection()
     }
 
-    func loadThumbnail(loader: ThumbnailLoader, access: FileAccess) {
+    func loadThumbnail(loader: ThumbnailLoader, access: FileAccess, generation: Int) {
         cancelThumbnail()
         guard let url else { return }
         detail.stringValue = "Loading…"
         task = Task { [weak self] in
             do {
-                let loaded = try await loader.load(at: url, access: access)
+                let loaded = try await loader.load(at: url, access: access, generation: generation)
                 guard !Task.isCancelled, let self, self.url == url else { return }
                 self.preview.image = NSImage(cgImage: loaded.image, size: .zero)
                 self.detail.stringValue = ""

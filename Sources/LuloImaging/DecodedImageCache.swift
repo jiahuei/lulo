@@ -41,22 +41,24 @@ struct DecodedImageCache<Value: Sendable> {
         return value
     }
 
-    private struct FileStamp: Equatable {
-        let modified: Date?
-        let size: UInt64?
-
-        init(url: URL) throws {
-            // URL resource values may be cached on the URL itself; stat afresh on each revisit.
-            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-            modified = attributes[.modificationDate] as? Date
-            size = (attributes[.size] as? NSNumber)?.uint64Value
-        }
-    }
-
     private struct Entry {
         let url: URL
         let stamp: FileStamp
         let value: Value
         let cost: Int
+    }
+}
+
+struct FileStamp: Equatable {
+    let modified: Date?
+    let size: UInt64?
+    let fileNumber: UInt64?
+
+    init(url: URL) throws {
+        // URL resource values may be cached on the URL itself; stat afresh on each revisit.
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        modified = attributes[.modificationDate] as? Date
+        size = (attributes[.size] as? NSNumber)?.uint64Value
+        fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
     }
 }
