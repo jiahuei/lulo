@@ -50,6 +50,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
+        scroll.contentView.drawsBackground = false
         addSubview(scroll)
         heading.font = .systemFont(ofSize: 34, weight: .semibold)
         heading.textColor = ViewerColors.primary
@@ -300,7 +301,7 @@ private final class GalleryCollectionLayout: NSCollectionViewLayout {
         super.prepare()
         geometry = GalleryGeometry(
             aspectRatios: aspectRatios,
-            width: collectionView?.enclosingScrollView?.contentSize.width ?? 1, targetSize: targetSize,
+            width: Double(collectionView?.enclosingScrollView?.contentSize.width ?? 1), targetSize: targetSize,
             layout: presentation)
         attributes = geometry.frames.enumerated().map { index, frame in
             let value = NSCollectionViewLayoutAttributes(forItemWith: IndexPath(item: index, section: 0))

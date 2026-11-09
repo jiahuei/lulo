@@ -107,6 +107,14 @@ class CapsuleButton: NSButton {
 
 @MainActor
 final class CapsuleSegments: NSSegmentedControl {
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        guard segmentCount > 0 else { return }
+        let width = newSize.width / CGFloat(segmentCount)
+        for index in 0..<segmentCount where abs(self.width(forSegment: index) - width) > 0.01 {
+            setWidth(width, forSegment: index)
+        }
+    }
     override func draw(_ dirtyRect: NSRect) {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let width = bounds.width / CGFloat(segmentCount)
@@ -198,6 +206,9 @@ final class BreadcrumbView: NSView {
     var showGallery: (() -> Void)?
     override init(frame: NSRect) {
         super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Current location")
         symbol.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
         symbol.contentTintColor = ViewerColors.tertiary
         symbol.setAccessibilityElement(false)
@@ -263,7 +274,7 @@ func refreshWheel() -> NSImage {
             path.lineWidth = 2.1
             path.lineCapStyle = .round
             path.move(to: NSPoint(x: 9 + cos(angle) * 4.6, y: 9 + sin(angle) * 4.6))
-            path.line(to: NSPoint(x: 9 + cos(angle) * 8, y: 9 + sin(angle) * 8))
+            path.line(to: NSPoint(x: 9 + cos(angle) * 9, y: 9 + sin(angle) * 9))
             path.stroke()
         }
         return true
