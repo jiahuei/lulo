@@ -43,13 +43,7 @@ public enum SortMethod: String, CaseIterable, Sendable {
     case fileType = "File Type"
 }
 
-public enum DisplayDefault: String, CaseIterable, Sendable {
-    case fit = "Fit to Window"
-    case actualSize = "100%"
-}
-
 public struct Preferences: Equatable, Sendable {
-    public var display: DisplayDefault
     public var sort: SortMethod
     public var ascending: Bool
     public var blurredBackground: Bool
@@ -58,11 +52,10 @@ public struct Preferences: Equatable, Sendable {
     public var previewTileSize: Double
 
     public init(
-        display: DisplayDefault = .fit, sort: SortMethod = .name, ascending: Bool = true,
+        sort: SortMethod = .name, ascending: Bool = true,
         blurredBackground: Bool = false, galleryLayout: GalleryLayout = .rows,
         rowsTargetHeight: Double = 200, previewTileSize: Double = 128
     ) {
-        self.display = display
         self.sort = sort
         self.ascending = ascending
         self.blurredBackground = blurredBackground
@@ -72,7 +65,6 @@ public struct Preferences: Equatable, Sendable {
     }
 
     public init(defaults: UserDefaults) {
-        display = defaults.string(forKey: "displayDefault").flatMap(DisplayDefault.init(rawValue:)) ?? .fit
         sort = defaults.string(forKey: "sortMethod").flatMap(SortMethod.init(rawValue:)) ?? .name
         ascending = defaults.object(forKey: "sortAscending") as? Bool ?? true
         blurredBackground = defaults.bool(forKey: "blurredBackground")
@@ -83,7 +75,6 @@ public struct Preferences: Equatable, Sendable {
     }
 
     public func save(to defaults: UserDefaults) {
-        defaults.set(display.rawValue, forKey: "displayDefault")
         defaults.set(sort.rawValue, forKey: "sortMethod")
         defaults.set(ascending, forKey: "sortAscending")
         defaults.set(blurredBackground, forKey: "blurredBackground")

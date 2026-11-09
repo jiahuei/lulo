@@ -99,6 +99,11 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    override func showWindow(_ sender: Any?) {
+        if window?.isVisible == false { canvas.resetZoom() }
+        super.showWindow(sender)
+    }
+
     private func segments(_ control: NSSegmentedControl, title: String, values: [String], action: Selector) {
         control.segmentCount = values.count
         control.trackingMode = .selectOne
@@ -126,9 +131,9 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         display.setLabel("100%", forSegment: 1)
         display.setToolTip("Fit to Window", forSegment: 0)
         display.setToolTip("100%", forSegment: 1)
-        display.setAccessibilityLabel("Default image zoom")
+        display.setAccessibilityLabel("Viewing mode")
         display.target = self
-        display.action = #selector(preferencesChanged)
+        display.action = #selector(viewingModeChanged)
         segments(
             sorting, title: "Sort images by", values: ["Name", "Time", "Rating", "Type"],
             action: #selector(preferencesChanged))
@@ -141,7 +146,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         formatButtons = ImageFormat.allCases.map {
             NSButton(checkboxWithTitle: $0.rawValue, target: self, action: #selector(filtersChanged))
         }
-        display.selectedSegment = session.preferences.display == .fit ? 0 : 1
+        display.selectedSegment = 0
         sorting.selectedSegment = SortMethod.allCases.firstIndex(of: session.preferences.sort) ?? 0
         direction.selectedSegment = session.preferences.ascending ? 0 : 1
         configureButton(previous, title: "Previous image", symbol: "chevron.left", action: #selector(previousImage))
@@ -287,6 +292,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         ])
         canvas.zoomChanged = { [weak self] in self?.updateZoomStatus() }
         canvas.navigate = { [weak self] delta in self?.navigate(delta) }
+        canvas.modeChanged = { [weak self] mode in self?.display.selectedSegment = mode == .fit ? 0 : 1 }
         gallery.selectionChanged = { [weak self] url in
             guard let self else { return }
             self.session.select(url)
@@ -294,7 +300,6 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         }
         gallery.openSelection = { [weak self] in self?.showSelectedImage() }
         gallery.clearFilters = { [weak self] in self?.clearFilters() }
-        canvas.displayDefault = session.preferences.display
         canvas.resetZoom()
         canvas.showMessage(
             "Open an image.", detail: "View JPEG, PNG, and HEIF images.",
@@ -560,7 +565,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         info.state = .off
         info.setAccessibilityLabel("Show metadata")
         metadataPanel.isHidden = true
-        canvas.displayDefault = session.preferences.display
+        canvas.resetZoom()
         metadata.string = ""
         rating.stringValue = ""
         status.stringValue = ""
@@ -766,7 +771,6 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
                     return
                 }
                 self.canvas.image = loaded.image
-                self.canvas.resetZoom()
                 self.canvas.setAccessibilityLabel(url.lastPathComponent)
                 self.showMetadata(loaded.details)
                 self.rating.setRating(loaded.details.entry.rating)
@@ -863,14 +867,14 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     @objc func previousImage() { navigate(-1) }
     @objc func nextImage() { navigate(1) }
 
+    @objc private func viewingModeChanged() {
+        canvas.resetZoom(to: display.selectedSegment == 0 ? .fit : .actualSize)
+    }
+
     @objc private func preferencesChanged() {
-        let oldDisplay = session.preferences.display
-        session.preferences.display = display.selectedSegment == 0 ? .fit : .actualSize
         session.preferences.sort = SortMethod.allCases[sorting.selectedSegment]
         session.preferences.ascending = direction.selectedSegment == 0
         session.preferences.save(to: .standard)
-        canvas.displayDefault = session.preferences.display
-        if oldDisplay != session.preferences.display { canvas.resetZoom() }
         updateStatus()
         prefetchNeighbor()
     }
@@ -925,6 +929,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         gallery.isHidden = !visible
         metadataPanel.isHidden = visible || !session.sidebarVisible
         if visible {
+            canvas.resetZoom()
             loadTask?.cancel()
             prefetchTask?.cancel()
             request += 1

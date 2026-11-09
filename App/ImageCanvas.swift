@@ -5,7 +5,7 @@ import LuloCore
 final class ImageCanvas: NSView {
     var image: CGImage? {
         didSet {
-            offset = .zero
+            if image != nil { zoom.nextImage() }
             messageStack.isHidden = image != nil
             setAccessibilityElement(image != nil)
             hideLoading()
@@ -20,11 +20,10 @@ final class ImageCanvas: NSView {
     private let loadingFilename = NSTextField(labelWithString: "")
     private let messageStack = NSStackView()
     private var messageAction: (() -> Void)?
-    var displayDefault = DisplayDefault.fit
     var zoom = ZoomState()
+    var modeChanged: ((ViewingMode) -> Void)?
     var navigate: ((Int) -> Void)?
     var zoomChanged: (() -> Void)?
-    private var offset = CGPoint.zero
     private var dragOrigin: CGPoint?
     private(set) var isLoading = false
 
@@ -133,9 +132,9 @@ final class ImageCanvas: NSView {
 
     @objc private func performMessageAction() { messageAction?() }
 
-    func resetZoom() {
-        zoom.reset(to: displayDefault)
-        offset = .zero
+    func resetZoom(to mode: ViewingMode = .fit) {
+        zoom.reset(to: mode)
+        modeChanged?(zoom.mode)
         needsDisplay = true
     }
 
@@ -157,15 +156,18 @@ final class ImageCanvas: NSView {
             viewportWidth: backing.width, viewportHeight: backing.height, backingScale: 1)
     }
 
+    private var imageSize: NSSize {
+        guard let image else { return .zero }
+        return convertFromBacking(NSSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
+    }
+
+    var displayedImageRect: NSRect {
+        zoom.imageRect(imageSize: imageSize, viewport: bounds)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let image, let context = NSGraphicsContext.current?.cgContext else { return }
-        let size = convertFromBacking(NSSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
-        offset.x = max(-max(0, (size.width - bounds.width) / 2), min(max(0, (size.width - bounds.width) / 2), offset.x))
-        offset.y = max(
-            -max(0, (size.height - bounds.height) / 2), min(max(0, (size.height - bounds.height) / 2), offset.y))
-        let rect = NSRect(
-            x: (bounds.width - size.width) / 2 + offset.x,
-            y: (bounds.height - size.height) / 2 + offset.y, width: size.width, height: size.height)
+        let rect = displayedImageRect
         context.interpolationQuality = scale >= 1 ? .none : .high
         context.saveGState()
         context.setShadow(
@@ -199,8 +201,17 @@ final class ImageCanvas: NSView {
         window?.makeFirstResponder(self)
         guard image != nil else { return }
         if event.clickCount == 2 {
-            zoom.doubleClick(default: displayDefault)
-            offset = .zero
+            let point = convert(event.locationInWindow, from: nil)
+            let rect = displayedImageRect
+            guard rect.width > 0, rect.height > 0 else { return }
+            let imagePoint = CGPoint(
+                x: (point.x - rect.minX) / rect.width, y: (point.y - rect.minY) / rect.height)
+            zoom.doubleClick()
+            if zoom.mode == .actualSize {
+                zoom.anchor(imagePoint, at: point, imageSize: imageSize, viewport: bounds)
+            }
+            dragOrigin = nil
+            modeChanged?(zoom.mode)
             needsDisplay = true
         } else {
             dragOrigin = event.locationInWindow
@@ -209,8 +220,11 @@ final class ImageCanvas: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let origin = dragOrigin else { return }
-        offset.x += event.locationInWindow.x - origin.x
-        offset.y += event.locationInWindow.y - origin.y
+        let point = convert(event.locationInWindow, from: nil)
+        let previous = convert(origin, from: nil)
+        zoom.pan(
+            by: NSSize(width: point.x - previous.x, height: point.y - previous.y),
+            imageSize: imageSize, viewport: bounds)
         dragOrigin = event.locationInWindow
         needsDisplay = true
     }
