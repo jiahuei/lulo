@@ -175,13 +175,14 @@ func imageStoreDetectsFileReplacement() async throws {
     let url = folder.appendingPathComponent("image.png")
     let replacement = folder.appendingPathComponent("replacement.png")
     try fixture(at: url)
+    // A whole-second timestamp avoids filesystem precision loss when setting the copied file's date.
+    let modified = Date(timeIntervalSince1970: 100)
+    try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: url.path)
     let store = ImageStore()
     let original = try await store.load(at: url, generation: 1)
     let originalStamp = try FileStamp(url: url)
     try FileManager.default.copyItem(at: url, to: replacement)
-    if let modified = originalStamp.modified {
-        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: replacement.path)
-    }
+    try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: replacement.path)
     try FileManager.default.removeItem(at: url)
     try FileManager.default.moveItem(at: replacement, to: url)
     let replacedStamp = try FileStamp(url: url)
