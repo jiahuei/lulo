@@ -11,6 +11,7 @@ public actor ThumbnailLoader {
     public let byteLimit: Int
     public var cachedBytes: Int { cache.cachedBytes }
     private var cache: DecodedImageCache<LoadedThumbnail>
+    private var generation: Int?
     private let decode: @Sendable (URL) throws -> LoadedThumbnail
 
     public init(byteLimit: Int = 1024 * 1024 * 1024) {
@@ -26,9 +27,13 @@ public actor ThumbnailLoader {
         self.decode = decode
     }
 
-    public func load(at url: URL, access: FileAccess) throws -> LoadedThumbnail {
+    public func load(at url: URL, access: FileAccess, generation: Int = 0) throws -> LoadedThumbnail {
         try Task.checkCancellation()
         defer { withExtendedLifetime(access) {} }
+        if self.generation != generation {
+            cache.removeAll()
+            self.generation = generation
+        }
         let loaded = try cache.load(
             at: url, decode: { try decode(url) },
             byteCost: {

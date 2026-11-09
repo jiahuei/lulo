@@ -22,9 +22,11 @@ final class ViewerController: NSWindowController {
     private let previous = NSButton()
     private let next = NSButton()
     private let trash = NSButton()
+    private let refresh = NSButton()
     private let browsePopover = NSPopover()
     private let filterSummary = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
+    private let rating = NSTextField(labelWithString: "")
     typealias DiscoverImages = @Sendable (URL, @Sendable () -> Bool) throws -> [ImageEntry]
     typealias MoveToTrash = @Sendable (URL, FileAccess) async throws -> Void
     private let moveToTrash: MoveToTrash
@@ -39,16 +41,23 @@ final class ViewerController: NSWindowController {
     private var prefetchTask: Task<Void, Never>?
     private var navigationDirection = 1
     private var request = 0
+    private var cacheGeneration = 0
+    private var thumbnailGeneration = 0
     private var openedURL: URL?
+    private let automaticallyRefresh: Bool
+    private var changeMonitor: ImageChangeMonitor?
+    private var automaticRefreshTask: Task<Void, Never>?
 
     init(
         imageStore: ImageStore = ImageStore(),
         discoverImages: @escaping DiscoverImages = { try ImageLoader.discover(in: $0, isCancelled: $1) },
-        moveToTrash: @escaping MoveToTrash = { _ = try await ImageTrash().move(at: $0, access: $1) }
+        moveToTrash: @escaping MoveToTrash = { _ = try await ImageTrash().move(at: $0, access: $1) },
+        automaticallyRefresh: Bool = true
     ) {
         self.imageStore = imageStore
         self.moveToTrash = moveToTrash
         self.discoverImages = discoverImages
+        self.automaticallyRefresh = automaticallyRefresh
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -108,6 +117,8 @@ final class ViewerController: NSWindowController {
         info.setButtonType(.toggle)
         configureButton(trash, title: "Move to Trash", symbol: "trash", action: #selector(trashCurrentImage))
         configureButton(
+            refresh, title: "Refresh (Command-R)", symbol: "arrow.clockwise", action: #selector(refreshImages))
+        configureButton(
             galleryButton, title: "Show gallery", symbol: "square.grid.2x2", action: #selector(toggleGallery))
         galleryButton.setButtonType(.toggle)
         configureButton(
@@ -151,12 +162,14 @@ final class ViewerController: NSWindowController {
 
         status.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         status.textColor = .secondaryLabelColor
+        rating.font = .systemFont(ofSize: 13, weight: .medium)
+        rating.textColor = .systemYellow
         filterSummary.font = .systemFont(ofSize: 11)
         filterSummary.textColor = .secondaryLabelColor
         filterSummary.lineBreakMode = .byTruncatingTail
         filterSummary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let footer = NSView()
-        for label in [status, filterSummary] {
+        for label in [status, rating, filterSummary] {
             label.translatesAutoresizingMaskIntoConstraints = false
             footer.addSubview(label)
         }
@@ -179,7 +192,9 @@ final class ViewerController: NSWindowController {
             footer.heightAnchor.constraint(equalToConstant: 30),
             status.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: 16),
             status.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
-            filterSummary.leadingAnchor.constraint(greaterThanOrEqualTo: status.trailingAnchor, constant: 20),
+            rating.leadingAnchor.constraint(equalTo: status.trailingAnchor, constant: 12),
+            rating.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            filterSummary.leadingAnchor.constraint(greaterThanOrEqualTo: rating.trailingAnchor, constant: 20),
             filterSummary.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -16),
             filterSummary.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
         ])
@@ -368,6 +383,10 @@ final class ViewerController: NSWindowController {
                 self.worker.cancelAllOperations()
                 let wasSelected = self.session.selectedURL == url
                 self.session.removeEntry(at: url)
+                if self.folderAccess == nil {
+                    self.changeMonitor = nil
+                    self.automaticRefreshTask?.cancel()
+                }
                 if wasSelected {
                     self.canvas.image = nil
                     self.loadSelection()
@@ -395,6 +414,8 @@ final class ViewerController: NSWindowController {
     }
 
     func open(_ url: URL) {
+        changeMonitor = nil
+        automaticRefreshTask?.cancel()
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         browsePopover.performClose(nil)
@@ -406,6 +427,7 @@ final class ViewerController: NSWindowController {
         prefetchTask?.cancel()
         navigationDirection = 1
         request += 1
+        cacheGeneration += 1
         openedURL = url
         fileAccess = FileAccess(url: url)
         let entry = ImageFormat(url: url).map { ImageEntry(url: url, format: $0) }
@@ -416,7 +438,10 @@ final class ViewerController: NSWindowController {
         sidebar.isHidden = true
         canvas.displayDefault = session.preferences.display
         metadata.string = ""
+        rating.stringValue = ""
         status.stringValue = ""
+        let parent = url.deletingLastPathComponent().standardizedFileURL
+        if folderAccess?.url.standardizedFileURL != parent { folderAccess = nil }
         do { _ = try ImageLoader.validateFormat(url) } catch {
             canvas.image = nil
             canvas.showMessage(
@@ -426,7 +451,7 @@ final class ViewerController: NSWindowController {
             return
         }
         loadSelection()
-        let parent = url.deletingLastPathComponent().standardizedFileURL
+        startMonitoring()
         if folderAccess?.url.standardizedFileURL == parent {
             discoverFolder()
         } else {
@@ -473,6 +498,7 @@ final class ViewerController: NSWindowController {
             return
         }
         folderAccess = access
+        startMonitoring()
         discoverFolder()
     }
 
@@ -481,32 +507,82 @@ final class ViewerController: NSWindowController {
         requestFolder(openedURL.deletingLastPathComponent().standardizedFileURL, generation: session.generation)
     }
 
+    var canRefresh: Bool {
+        openedURL != nil && !trashInProgress && window?.attachedSheet == nil
+    }
+
+    @objc func refreshImages() {
+        guard canRefresh else { return }
+        automaticRefreshTask?.cancel()
+        refreshContents()
+    }
+
+    private func refreshContents() {
+        worker.cancelAllOperations()
+        cacheGeneration += 1
+        thumbnailGeneration += 1
+        // A single authorized image can become visible again after its embedded rating changes.
+        loadSelection(reloadingOpenedImage: folderAccess == nil && !session.entries.isEmpty)
+        discoverFolder()
+    }
+
+    private func startMonitoring() {
+        changeMonitor = nil
+        automaticRefreshTask?.cancel()
+        guard automaticallyRefresh, let fileAccess else { return }
+        let generation = session.generation
+        changeMonitor = ImageChangeMonitor(fileAccess: fileAccess, folderAccess: folderAccess) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.session.generation == generation, self.changeMonitor != nil else { return }
+                self.automaticRefreshTask?.cancel()
+                self.automaticRefreshTask = Task { [weak self] in
+                    // Coalesce saves and defer updates while confirmation/permission sheets are open.
+                    repeat {
+                        do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+                        guard let self, self.session.generation == generation else { return }
+                        if self.canRefresh {
+                            self.refreshContents()
+                            return
+                        }
+                    } while !Task.isCancelled
+                }
+            }
+        }
+    }
+
     private func discoverFolder() {
         guard let access = folderAccess else { return }
         let generation = session.generation
+        let opened = session.entries.first(where: { $0.url == openedURL })
+        let openedAccess = fileAccess
         let discover = discoverImages
         let operation = BlockOperation()
         operation.addExecutionBlock { [weak self, weak operation] in
             guard let operation else { return }
-            let result = Result { try discover(access.url, { operation.isCancelled }) }
-            withExtendedLifetime(access) {
+            let result = Result {
+                var entries = try discover(access.url, { operation.isCancelled })
+                // Keep directly opened hidden files/symlinks, but never resurrect a deleted image.
+                if !operation.isCancelled, let opened,
+                    !entries.contains(where: { $0.url == opened.url }),
+                    FileManager.default.fileExists(atPath: opened.url.path)
+                {
+                    entries.append((try? ImageLoader.details(at: opened.url).entry) ?? opened)
+                }
+                return entries
+            }
+            withExtendedLifetime((access, openedAccess)) {
                 guard !operation.isCancelled else { return }
                 _ = Task { @MainActor [weak self] in
                     guard let self, self.session.generation == generation, !operation.isCancelled else { return }
                     switch result {
-                    case .success(var entries):
-                        if let opened = self.session.entries.first(where: { $0.url == self.openedURL }),
-                            !entries.contains(where: { $0.url == opened.url })
-                        {
-                            entries.append(opened)
-                        }
+                    case .success(let entries):
                         let selected = self.session.selectedURL
                         self.session.replaceEntries(entries)
                         if self.session.selectedURL != selected { self.loadSelection() }
                         self.updateStatus()
                         self.prefetchNeighbor()
                     case .failure:
-                        self.status.stringValue = "Folder could not be read. The opened image is still available."
+                        self.status.stringValue = "Folder could not be read. Refresh to try again."
                     }
                 }
             }
@@ -514,7 +590,7 @@ final class ViewerController: NSWindowController {
         worker.addOperation(operation)
     }
 
-    private func loadSelection() {
+    private func loadSelection(reloadingOpenedImage: Bool = false) {
         loadTask?.cancel()
         prefetchTask?.cancel()
         request += 1
@@ -524,7 +600,8 @@ final class ViewerController: NSWindowController {
         }
         let currentRequest = request
         metadata.string = ""
-        guard let url = session.selectedURL else {
+        rating.stringValue = ""
+        guard let url = session.selectedURL ?? (reloadingOpenedImage ? openedURL : nil) else {
             canvas.image = nil
             window?.title = "Lulo"
             if session.entries.isEmpty {
@@ -542,7 +619,7 @@ final class ViewerController: NSWindowController {
         canvas.beginLoading()
         window?.title = url.lastPathComponent
         let access = url == openedURL ? fileAccess : folderAccess
-        let generation = session.generation
+        let generation = cacheGeneration
         let store = imageStore
         loadTask = Task { [weak self] in
             do {
@@ -562,6 +639,12 @@ final class ViewerController: NSWindowController {
                 self.canvas.resetZoom()
                 self.canvas.setAccessibilityLabel(url.lastPathComponent)
                 self.showMetadata(loaded.details)
+                if let stars = loaded.details.entry.rating, (1...5).contains(stars) {
+                    self.rating.stringValue = String(repeating: "★", count: stars)
+                    let label = "\(stars) \(stars == 1 ? "star" : "stars")"
+                    self.rating.setAccessibilityLabel(label)
+                    self.rating.toolTip = label
+                }
                 self.updateStatus()
                 self.prefetchNeighbor()
             } catch is CancellationError {
@@ -586,7 +669,7 @@ final class ViewerController: NSWindowController {
         guard let url = neighbor.selectedURL, url != session.selectedURL else { return }
         let access = url == openedURL ? fileAccess : folderAccess
         guard let access else { return }
-        let generation = session.generation
+        let generation = cacheGeneration
         let store = imageStore
         // One likely next image shares the serial decoder; cancelled queued work is skipped.
         // A prefetch failure is presented only if the user actually selects that file.
@@ -600,15 +683,21 @@ final class ViewerController: NSWindowController {
         galleryButton.isEnabled = openedURL != nil
         display.isEnabled = !galleryVisible
         info.isEnabled = !galleryVisible
+        refresh.isEnabled = canRefresh
+        rating.isHidden = galleryVisible || canvas.image == nil || canvas.isLoading || rating.stringValue.isEmpty
         if galleryVisible, let folderAccess {
             gallery.update(
-                entries: entries, selectedURL: session.selectedURL, folderAccess: folderAccess, fileAccess: fileAccess)
+                entries: entries, selectedURL: session.selectedURL, folderAccess: folderAccess, fileAccess: fileAccess,
+                generation: thumbnailGeneration)
             window?.title = folderAccess.url.lastPathComponent
         }
         if let index = entries.firstIndex(where: { $0.url == session.selectedURL }) {
             status.stringValue = "\(index + 1) of \(entries.count)"
         } else {
             status.stringValue = openedURL == nil ? "JPEG · PNG · HEIF" : "\(entries.count) images"
+        }
+        if changeMonitor?.isActive == false {
+            status.stringValue += " · Automatic refresh unavailable; use Refresh"
         }
         previous.isEnabled = !entries.isEmpty
         next.isEnabled = !entries.isEmpty
@@ -717,7 +806,7 @@ extension ViewerController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .init("Open"), .init("Gallery"), .init("Previous"), .init("Next"), .flexibleSpace, .init("Display"),
-            .init("Browse"), .init("Metadata"), .init("Trash"),
+            .init("Refresh"), .init("Browse"), .init("Metadata"), .init("Trash"),
         ]
     }
 
@@ -756,6 +845,10 @@ extension ViewerController: NSToolbarDelegate {
         case "Trash":
             item.label = "Move to Trash"
             item.view = trash
+        case "Refresh":
+            item.label = "Refresh"
+            item.view = refresh
+            item.visibilityPriority = .high
         case "Metadata":
             item.label = "Metadata"
             item.view = info

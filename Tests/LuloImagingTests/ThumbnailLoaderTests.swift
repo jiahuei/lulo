@@ -112,3 +112,42 @@ func cancelledThumbnailDecodeIsReusable() async throws {
     let reused = try await loader.load(at: url, access: FileAccess(url: folder))
     #expect(reused.image === loaded.image)
 }
+
+/// Ensures manual refresh discards cached pixels even when file size and modification time are unchanged.
+@Test
+func thumbnailRefreshGeneration() async throws {
+    let folder = try thumbnailTestFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let url = folder.appendingPathComponent("image.png")
+    try fixture(at: url)
+    let loader = ThumbnailLoader()
+    let access = FileAccess(url: folder)
+    let original = try await loader.load(at: url, access: access, generation: 0)
+    let refreshed = try await loader.load(at: url, access: access, generation: 1)
+    #expect(refreshed.image !== original.image)
+    let reused = try await loader.load(at: url, access: access, generation: 1)
+    #expect(reused.image === refreshed.image)
+    #expect(await loader.cachedBytes == refreshed.image.bytesPerRow * refreshed.image.height)
+}
+
+/// Ensures cancelled work from before refresh cannot discard the refreshed thumbnail cache.
+@Test
+func cancelledThumbnailPreservesRefresh() async throws {
+    let folder = try thumbnailTestFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let url = folder.appendingPathComponent("image.png")
+    try fixture(at: url)
+    let loader = ThumbnailLoader()
+    let access = FileAccess(url: folder)
+    let refreshed = try await loader.load(at: url, access: access, generation: 1)
+    let gate = AsyncStream<Void>.makeStream()
+    let obsolete = Task {
+        for await _ in gate.stream { break }
+        return try await loader.load(at: url, access: access, generation: 0)
+    }
+    obsolete.cancel()
+    gate.continuation.finish()
+    await #expect(throws: CancellationError.self) { try await obsolete.value }
+    let retained = try await loader.load(at: url, access: access, generation: 1)
+    #expect(retained.image === refreshed.image)
+}
