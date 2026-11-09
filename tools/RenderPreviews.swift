@@ -17,7 +17,7 @@ enum RenderPreviews {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
         app.finishLaunching()
-        let viewer = ViewerController()
+        let viewer = ViewerController(automaticallyRefresh: false)
         viewer.showWindow(nil)
         guard let window = viewer.window else { throw PreviewError.missingWindow }
         window.setContentSize(NSSize(width: 1000, height: 680))
@@ -563,7 +563,7 @@ enum RenderPreviews {
         let urls = ["a.png", "b.png"].map { folder.appendingPathComponent($0) }
         for url in urls { try FileManager.default.copyItem(at: fixture, to: url) }
         let store = ImageStore()
-        let viewer = ViewerController(imageStore: store)
+        let viewer = ViewerController(imageStore: store, automaticallyRefresh: false)
         guard let window = viewer.window, let root = window.contentView,
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
             let overlay = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first
@@ -701,13 +701,13 @@ enum RenderPreviews {
                 as? NSButton
         else { throw PreviewError.refreshFailed(line: #line) }
         defer { window.close() }
-        func waitUntil(_ ready: () -> Bool) throws {
+        func waitUntil(line: Int = #line, _ ready: () -> Bool) throws {
             let deadline = Date().addingTimeInterval(15)
             while !ready() && Date() < deadline {
                 if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
                 settle()
             }
-            guard ready() else { throw PreviewError.refreshFailed(line: #line) }
+            guard ready() else { throw PreviewError.refreshFailed(line: line) }
         }
         func hasStatus(_ text: String) -> Bool {
             descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == text }
@@ -830,13 +830,13 @@ enum RenderPreviews {
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first
         else { throw PreviewError.refreshFailed(line: #line) }
         defer { window.close() }
-        func waitUntil(_ ready: () -> Bool) throws {
+        func waitUntil(line: Int = #line, _ ready: () -> Bool) throws {
             let deadline = Date().addingTimeInterval(15)
             while !ready() && Date() < deadline {
                 if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
                 settle()
             }
-            guard ready() else { throw PreviewError.refreshFailed(line: #line) }
+            guard ready() else { throw PreviewError.refreshFailed(line: line) }
         }
         func hasLabel(_ text: String) -> Bool {
             descendants(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == text }
