@@ -51,10 +51,13 @@ final class ImageCanvas: NSView {
         messageStack.setCustomSpacing(20, after: messageDetail)
         messageStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(messageStack)
+        let preferredMessageWidth = messageStack.widthAnchor.constraint(equalToConstant: 440)
+        preferredMessageWidth.priority = .defaultHigh
+        preferredMessageWidth.isActive = true
         NSLayoutConstraint.activate([
             messageStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             messageStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            messageStack.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+            messageStack.widthAnchor.constraint(lessThanOrEqualToConstant: 440),
             messageStack.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
             messageDetail.widthAnchor.constraint(equalTo: messageStack.widthAnchor),
         ])

@@ -118,14 +118,6 @@ class CapsuleButton: NSButton {
 
 @MainActor
 final class CapsuleSegments: NSSegmentedControl {
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        guard segmentCount > 0 else { return }
-        let width = newSize.width / CGFloat(segmentCount)
-        for index in 0..<segmentCount where abs(self.width(forSegment: index) - width) > 0.01 {
-            setWidth(width, forSegment: index)
-        }
-    }
     override func draw(_ dirtyRect: NSRect) {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let width = bounds.width / CGFloat(segmentCount)

@@ -119,6 +119,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
 
     private func buildInterface() {
         guard let window else { return }
+        for control in [display, galleryLayout, sorting, direction] { control.segmentDistribution = .fillEqually }
         display.identifier = .init("Display")
         galleryLayout.identifier = .init("GalleryLayout")
         sizeSlider.identifier = .init("ThumbnailSize")
