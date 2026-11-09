@@ -46,6 +46,7 @@ enum RenderPreviews {
             throw PreviewError.imageDidNotLoad
         }
         settle()
+        try verifyTransparentCanvas(window)
         try verifyDisplayToggle(viewer)
         try capture(window, to: output.appendingPathComponent("image-light.png"))
         viewer.toggleSidebar()
@@ -71,6 +72,8 @@ enum RenderPreviews {
             if let popover = app.windows.first(where: { $0 !== window && $0.isVisible && $0.contentView != nil }) {
                 try capture(popover, to: output.appendingPathComponent("browse-dark.png"))
                 try verifyFilterCheckboxes(popover: popover, viewer: window)
+                try capture(popover, to: output.appendingPathComponent("browse-selected-dark.png"))
+                try capture(window, to: output.appendingPathComponent("filter-badge-dark.png"))
                 browse.performClick(nil)
                 settle()
                 guard let canvas = descendants(window.contentView!).compactMap({ $0 as? ImageCanvas }).first,
@@ -91,7 +94,7 @@ enum RenderPreviews {
         } else {
             throw PreviewError.missingFilterControls
         }
-        try verifyArrowNavigation(viewer)
+        try verifyArrowNavigation(viewer, output: output)
         try verifyCachedNavigation(fixture: fixture)
         try verifyObsoleteFolderScan(fixture: fixture)
         try verifyGallery(fixture: fixture, output: output)
@@ -100,6 +103,29 @@ enum RenderPreviews {
         try verifyTrashAction(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures photo shadows do not add an opaque backing beneath transparent source pixels.
+    private static func verifyTransparentCanvas(_ window: NSWindow) throws {
+        guard let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let original = canvas.image,
+            let space = CGColorSpace(name: CGColorSpace.sRGB),
+            let context = CGContext(
+                data: nil, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 128,
+                space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { throw PreviewError.captureFailed }
+        context.clear(CGRect(x: 0, y: 0, width: 32, height: 32))
+        canvas.image = context.makeImage()
+        defer { canvas.image = original }
+        settle()
+        guard let bitmap = root.bitmapImageRepForCachingDisplay(in: root.bounds) else {
+            throw PreviewError.captureFailed
+        }
+        root.cacheDisplay(in: root.bounds, to: bitmap)
+        guard let center = bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB),
+            center.redComponent > 0.8, center.greenComponent > 0.8, center.blueComponent > 0.8
+        else { throw PreviewError.captureFailed }
     }
 
     /// Ensures the toolbar selects the current mode, double-click stays in sync, and new viewers always start in fit.
@@ -537,8 +563,17 @@ enum RenderPreviews {
         unrated.performClick(nil)
         guard canvas.image == nil, fiveStars.state == .on,
             browse.accessibilityLabel() == "Sort & Filter, 1 active filter",
-            (browse as? CapsuleButton)?.badgeCount == 1
+            (browse as? CapsuleButton)?.badgeCount == 1,
+            descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
+                $0.stringValue == "Filtered by 5 Stars"
+            })
         else { throw PreviewError.filterDidNotApply }
+        if viewer.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua {
+            guard let background = descendants(viewer.contentView!).compactMap({ $0 as? ViewerBackground }).first,
+                let color = background.layer?.backgroundColor,
+                let resolved = NSColor(cgColor: color)?.usingColorSpace(.sRGB), resolved.redComponent < 0.2
+            else { throw PreviewError.filterDidNotApply }
+        }
     }
 
     /// Ensures the loading card stays compact and legible over retained pixels in both appearances.
@@ -569,7 +604,7 @@ enum RenderPreviews {
     }
 
     /// Ensures real arrow events keep image/metadata selection consistent through reversals and rapid repeats.
-    private static func verifyArrowNavigation(_ viewer: ViewerController) throws {
+    private static func verifyArrowNavigation(_ viewer: ViewerController, output: URL) throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -704,6 +739,7 @@ enum RenderPreviews {
         try Data("corrupt image".utf8).write(to: urls[1])
         try arrow(-1)
         try waitUntil("recoverable error") { !canvas.isLoading && canvas.image == nil }
+        try capture(window, to: output.appendingPathComponent("error-dark.png"))
         guard
             descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
                 $0.stringValue == "Can’t open this file." && !$0.isHiddenOrHasHiddenAncestor

@@ -39,6 +39,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private let smaller = CapsuleButton()
     private let larger = CapsuleButton()
     private let refreshSpinner = NSProgressIndicator()
+    private let refreshGlyph = refreshWheel()
     private var sliderWidth: NSLayoutConstraint?
     private var breadcrumbWidth: NSLayoutConstraint?
     private var thumbnailTask: Task<Void, Never>?
@@ -136,7 +137,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         display.target = self
         display.action = #selector(viewingModeChanged)
         segments(
-            sorting, title: "Sort images by", values: ["Name", "Time", "Rating", "Type"],
+            sorting, title: "Sort images by", values: SortMethod.allCases.map(\.rawValue),
             action: #selector(preferencesChanged))
         segments(
             direction, title: "Sort direction", values: ["Ascending", "Descending"],
@@ -162,7 +163,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         galleryButton.setButtonType(.toggle)
         configureButton(
             browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease.circle", action: #selector(showBrowse))
-        refresh.image = refreshWheel()
+        refresh.image = refreshGlyph
         configureButton(
             blurred, title: "Blurred Background", symbol: "drop.halffull", action: #selector(toggleBlurredBackground))
         blurred.setButtonType(.toggle)
@@ -415,13 +416,14 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
                     attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: ViewerColors.secondary]))
         }
         if let stars = details.entry.rating, (1...5).contains(stars) {
-            text.append(
-                NSAttributedString(
-                    string: "★ \(stars)\n",
-                    attributes: [
-                        .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
-                        .foregroundColor: ViewerColors.star,
-                    ]))
+            let chip = NSMutableAttributedString(
+                string: "★ \(stars)\n",
+                attributes: [
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
+                    .foregroundColor: ViewerColors.primary,
+                ])
+            chip.addAttribute(.foregroundColor, value: ViewerColors.star, range: NSRange(location: 0, length: 1))
+            text.append(chip)
         }
         for group in details.groups where !group.fields.isEmpty {
             metadata.dividerLocations.append(text.length)
@@ -854,7 +856,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         updateSelectedPresentation()
         if manualRefresh && !refreshingFolder && (galleryVisible || !canvas.isLoading) { manualRefresh = false }
         let spinning = manualRefresh && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        refresh.image = spinning ? nil : refreshWheel()
+        refresh.image = spinning ? nil : refreshGlyph
         if spinning { refreshSpinner.startAnimation(nil) } else { refreshSpinner.stopAnimation(nil) }
         updateZoomStatus()
     }
@@ -891,8 +893,10 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
                 }))
         let previous = session.selectedURL
         session.reconcileSelection()
-        if session.selectedURL != previous { loadSelection() }
         updateStatus()
+        if session.selectedURL != previous || (session.selectedURL == nil && !session.entries.isEmpty) {
+            loadSelection()
+        }
         prefetchNeighbor()
     }
 

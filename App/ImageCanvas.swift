@@ -59,6 +59,7 @@ final class ImageCanvas: NSView {
             messageStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             messageStack.widthAnchor.constraint(lessThanOrEqualToConstant: 440),
             messageStack.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
+            messageTitle.widthAnchor.constraint(equalTo: messageStack.widthAnchor),
             messageDetail.widthAnchor.constraint(equalTo: messageStack.widthAnchor),
         ])
 
@@ -139,6 +140,13 @@ final class ImageCanvas: NSView {
         zoom.reset(to: mode)
         modeChanged?(zoom.mode)
         needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            loadingBox.layer?.backgroundColor = ViewerColors.solid.cgColor
+        }
     }
 
     override func viewDidChangeBackingProperties() {

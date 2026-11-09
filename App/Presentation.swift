@@ -28,6 +28,7 @@ enum ViewerColors {
 
 @MainActor
 final class MaterialPanel: NSVisualEffectView {
+    private let tint = NSView()
     private let panelRadius: CGFloat
     init(cornerRadius: CGFloat = 12) {
         panelRadius = cornerRadius
@@ -39,6 +40,11 @@ final class MaterialPanel: NSVisualEffectView {
         layer?.cornerRadius = cornerRadius
         layer?.masksToBounds = true
         layer?.borderWidth = 0.5
+        tint.wantsLayer = true
+        tint.frame = bounds
+        tint.autoresizingMask = [.width, .height]
+        tint.setAccessibilityElement(false)
+        addSubview(tint)
         updateSurface()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -48,8 +54,8 @@ final class MaterialPanel: NSVisualEffectView {
     }
     private func updateSurface() {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        layer?.borderColor = ViewerColors.stroke.cgColor
-        layer?.backgroundColor =
+        effectiveAppearance.performAsCurrentDrawingAppearance { layer?.borderColor = ViewerColors.stroke.cgColor }
+        tint.layer?.backgroundColor =
             (dark
             ? NSColor(srgbRed: 0.094, green: 0.106, blue: 0.11, alpha: 0.8)
             : NSColor.white.withAlphaComponent(panelRadius == 18 ? 0.66 : 0.78)).cgColor
@@ -97,7 +103,8 @@ class CapsuleButton: NSButton {
                 from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.32)
         }
         if badgeCount > 0 {
-            let badge = NSRect(x: bounds.maxX - 14, y: bounds.maxY - 14, width: 13, height: 13)
+            let badge = NSRect(
+                x: bounds.maxX - 14, y: isFlipped ? bounds.minY + 1 : bounds.maxY - 14, width: 13, height: 13)
             ViewerColors.star.setFill()
             NSBezierPath(ovalIn: badge).fill()
             let number = NSAttributedString(
@@ -206,6 +213,7 @@ final class BreadcrumbView: NSView {
     private let fileSlash = NSTextField(labelWithString: "/")
     private let filename = NSTextField(labelWithString: "")
     private let row = NSStackView()
+    private var folderWidth: NSLayoutConstraint?
     var showGallery: (() -> Void)?
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -240,14 +248,17 @@ final class BreadcrumbView: NSView {
             row.centerYAnchor.constraint(equalTo: centerYAnchor), symbol.widthAnchor.constraint(equalToConstant: 14),
             symbol.heightAnchor.constraint(equalToConstant: 14),
         ])
-        for view in [parent, folder, filename] {
-            view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        }
+        parent.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        parent.widthAnchor.constraint(lessThanOrEqualToConstant: 96).isActive = true
+        folder.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        filename.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        folderWidth = folder.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.5)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
     func update(file: URL?, authorizedFolder: URL?, gallery: Bool, windowWidth: CGFloat) {
         let hasFolder = authorizedFolder != nil
         let narrow = windowWidth < 1000
+        folderWidth?.isActive = hasFolder && !gallery && file != nil
         symbol.isHidden = !hasFolder
         parent.isHidden = !hasFolder || narrow
         parentSlash.isHidden = parent.isHidden
@@ -377,7 +388,7 @@ final class ViewerBackground: NSView {
     }
     private func updateAppearance() {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        layer?.backgroundColor = ViewerColors.wall.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance { layer?.backgroundColor = ViewerColors.wall.cgColor }
         imageLayer.contents = dark ? images?.dark : images?.light
         let wash = dark ? NSColor.black : NSColor(srgbRed: 0.941, green: 0.945, blue: 0.953, alpha: 1)
         veil.colors = [
