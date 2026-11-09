@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import ImageIO
 import LuloCore
 import LuloImaging
@@ -8,7 +9,14 @@ import UniformTypeIdentifiers
 @main
 @MainActor
 enum RenderPreviews {
-    static func main() throws {
+    static func main() {
+        do { try render() } catch {
+            FileHandle.standardError.write(Data("Native preview verification failed: \(error)\n".utf8))
+            exit(1)
+        }
+    }
+
+    private static func render() throws {
         let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let fixture = output.appendingPathComponent("synthetic.png")
@@ -48,6 +56,7 @@ enum RenderPreviews {
         settle()
         try capture(window, to: output.appendingPathComponent("metadata-compact-dark.png"))
         try verifyLoadingOverlay(window, output: output)
+        FileHandle.standardError.write(Data("Checking D9 Sort & Filter popover.\n".utf8))
         if let browse = toolbarControl(window, "Browse")
             as? NSButton
         {

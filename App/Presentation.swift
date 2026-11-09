@@ -28,7 +28,9 @@ enum ViewerColors {
 
 @MainActor
 final class MaterialPanel: NSVisualEffectView {
+    private let panelRadius: CGFloat
     init(cornerRadius: CGFloat = 12) {
+        panelRadius = cornerRadius
         super.init(frame: .zero)
         material = .popover
         blendingMode = .withinWindow
@@ -37,11 +39,20 @@ final class MaterialPanel: NSVisualEffectView {
         layer?.cornerRadius = cornerRadius
         layer?.masksToBounds = true
         layer?.borderWidth = 0.5
+        updateSurface()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        updateSurface()
+    }
+    private func updateSurface() {
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         layer?.borderColor = ViewerColors.stroke.cgColor
+        layer?.backgroundColor =
+            (dark
+            ? NSColor(srgbRed: 0.094, green: 0.106, blue: 0.11, alpha: 0.8)
+            : NSColor.white.withAlphaComponent(panelRadius == 18 ? 0.66 : 0.78)).cgColor
     }
 }
 
