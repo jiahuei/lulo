@@ -368,6 +368,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         stack.alignment = .leading
         stack.spacing = 16
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 330, height: 430))
+        container.widthAnchor.constraint(equalToConstant: 330).isActive = true
         stack.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -404,6 +405,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
 
     private func showMetadata(_ details: ImageDetails) {
         metadata.dividerLocations = []
+        metadata.ratingRange = nil
         let text = NSMutableAttributedString(
             string: details.entry.url.lastPathComponent + "\n",
             attributes: [
@@ -423,6 +425,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
                     .foregroundColor: ViewerColors.primary,
                 ])
             chip.addAttribute(.foregroundColor, value: ViewerColors.star, range: NSRange(location: 0, length: 1))
+            metadata.ratingRange = NSRange(location: text.length, length: chip.length - 1)
             text.append(chip)
         }
         for group in details.groups where !group.fields.isEmpty {

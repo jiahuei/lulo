@@ -426,9 +426,21 @@ final class ThumbnailSizeSlider: NSSlider {
 @MainActor
 final class MetadataTextView: NSTextView {
     var dividerLocations: [Int] = []
+    var ratingRange: NSRange?
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let layoutManager, let textContainer else { return }
+        if let ratingRange, NSMaxRange(ratingRange) <= (string as NSString).length {
+            let glyphs = layoutManager.glyphRange(forCharacterRange: ratingRange, actualCharacterRange: nil)
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+                .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y).insetBy(dx: -3, dy: -1)
+            let chip = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
+            NSColor.labelColor.withAlphaComponent(0.05).setFill()
+            chip.fill()
+            ViewerColors.stroke.setStroke()
+            chip.lineWidth = 0.5
+            chip.stroke()
+        }
         ViewerColors.stroke.setStroke()
         for location in dividerLocations where location < (string as NSString).length {
             let glyphs = layoutManager.glyphRange(
