@@ -58,6 +58,7 @@ enum RenderPreviews {
         window.appearance = NSAppearance(named: .darkAqua)
         window.setContentSize(NSSize(width: 720, height: 480))
         settle()
+        guard abs(window.contentView!.bounds.width - 720) < 0.5 else { throw PreviewError.clippedCanvas }
         try capture(window, to: output.appendingPathComponent("metadata-blurred-compact-dark.png"))
         viewer.toggleBlurredBackground()
         for _ in 0..<3 { settle() }
@@ -482,6 +483,7 @@ enum RenderPreviews {
                 }
                 slider.doubleValue = before
                 slider.sendAction(slider.action, to: slider.target)
+                guard abs(root.bounds.width - width) < 0.5 else { throw PreviewError.galleryFailed }
                 let required = ["Files", "Navigation", "Display", "Actions"]
                 guard
                     required.allSatisfy({ name in

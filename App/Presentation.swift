@@ -210,6 +210,7 @@ final class BreadcrumbView: NSView {
     private let parent = NSTextField(labelWithString: "")
     private let parentSlash = NSTextField(labelWithString: "/")
     private let folder = NSButton()
+    private let folderLabel = NSTextField(labelWithString: "")
     private let fileSlash = NSTextField(labelWithString: "/")
     private let filename = NSTextField(labelWithString: "")
     private let row = NSStackView()
@@ -224,7 +225,10 @@ final class BreadcrumbView: NSView {
         symbol.contentTintColor = ViewerColors.tertiary
         symbol.setAccessibilityElement(false)
         folder.isBordered = false
-        folder.font = .systemFont(ofSize: 13, weight: .semibold)
+        folder.font = .systemFont(ofSize: 13)
+        folderLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        folderLabel.textColor = ViewerColors.primary
+        folderLabel.lineBreakMode = .byTruncatingTail
         folder.lineBreakMode = .byTruncatingTail
         folder.target = self
         folder.action = #selector(openGallery)
@@ -237,7 +241,9 @@ final class BreadcrumbView: NSView {
         parent.textColor = ViewerColors.secondary
         parentSlash.textColor = ViewerColors.tertiary
         fileSlash.textColor = ViewerColors.tertiary
-        for child in [symbol, parent, parentSlash, folder, fileSlash, filename] { row.addArrangedSubview(child) }
+        for child in [symbol, parent, parentSlash, folder, folderLabel, fileSlash, filename] {
+            row.addArrangedSubview(child)
+        }
         row.spacing = 5
         row.alignment = .centerY
         row.translatesAutoresizingMaskIntoConstraints = false
@@ -251,6 +257,7 @@ final class BreadcrumbView: NSView {
         parent.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         parent.widthAnchor.constraint(lessThanOrEqualToConstant: 96).isActive = true
         folder.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        folderLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         filename.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         folderWidth = folder.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.5)
     }
@@ -263,11 +270,12 @@ final class BreadcrumbView: NSView {
         parent.isHidden = !hasFolder || narrow
         parentSlash.isHidden = parent.isHidden
         parent.stringValue = authorizedFolder?.deletingLastPathComponent().lastPathComponent ?? ""
-        folder.isHidden = !hasFolder
+        folder.isHidden = !hasFolder || gallery
+        folderLabel.isHidden = !hasFolder || !gallery
         folder.title = authorizedFolder?.lastPathComponent ?? ""
-        folder.isEnabled = !gallery
-        folder.contentTintColor = gallery ? ViewerColors.primary : ViewerColors.secondary
-        folder.setAccessibilityLabel(gallery ? folder.title : "Show gallery, \(folder.title)")
+        folderLabel.stringValue = folder.title
+        folder.contentTintColor = ViewerColors.secondary
+        folder.setAccessibilityLabel("Show gallery, \(folder.title)")
         fileSlash.isHidden = !hasFolder || gallery || file == nil
         filename.isHidden = gallery || file == nil
         filename.stringValue = file?.lastPathComponent ?? ""

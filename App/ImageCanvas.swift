@@ -52,7 +52,8 @@ final class ImageCanvas: NSView {
         messageStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(messageStack)
         let preferredMessageWidth = messageStack.widthAnchor.constraint(equalToConstant: 440)
-        preferredMessageWidth.priority = .defaultHigh
+        // A preferred text measure must not increase the window's minimum width when the panel is open.
+        preferredMessageWidth.priority = .init(49)
         preferredMessageWidth.isActive = true
         NSLayoutConstraint.activate([
             messageStack.centerXAnchor.constraint(equalTo: centerXAnchor),
