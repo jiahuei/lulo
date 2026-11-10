@@ -89,7 +89,12 @@ enum RenderPreviews {
                 guard
                     let title = descendants(canvas).compactMap({ $0 as? NSTextField })
                         .first(where: { $0.stringValue == "No images match the current filters." }),
-                    title.bounds.width >= min(440, canvas.bounds.width - 48) - 1,
+                    let textHeight = title.cell?.cellSize(
+                        forBounds: NSRect(
+                            x: 0, y: 0, width: title.bounds.width, height: .greatestFiniteMagnitude)
+                    ).height,
+                    title.bounds.height + 1 >= textHeight,
+                    canvas.bounds.contains(canvas.convert(title.bounds, from: title)),
                     canvas.bounds.contains(canvas.convert(clear.bounds, from: clear))
                 else { throw PreviewError.clippedCanvas }
                 try capture(window, to: output.appendingPathComponent("filtered-empty-dark.png"))
@@ -203,7 +208,8 @@ enum RenderPreviews {
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
             let display = toolbarControl(window, "Display")
                 as? ButtonChoices,
-            display.selectedIndex == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
+            display.selectedIndex == 0, display.buttons[1].glyph == nil, display.buttons[1].title == "100%",
+            canvas.zoom.mode == .fit, canvas.zoom.scale == nil
         else { throw PreviewError.displayToggleFailed }
         for (segment, expected) in [(1, ViewingMode.actualSize), (1, .actualSize), (0, .fit), (0, .fit)] {
             canvas.zoom.scroll(up: true, currentScale: 2)
@@ -1019,7 +1025,9 @@ enum RenderPreviews {
         viewer.open(first)
         try waitUntil { canvas.image != nil && !canvas.isLoading && window.attachedSheet == nil }
         guard refresh.isEnabled, hasStatus("1 of 1"),
-            let rating = descendants(root).compactMap({ $0 as? NSTextField }).first(where: { $0.stringValue == "★ 1" })
+            let rating = descendants(root).compactMap({ $0 as? NSTextField }).first(where: {
+                $0.identifier?.rawValue == "StatusRating" && $0.stringValue == "★ 1"
+            })
         else {
             let labels = descendants(root).compactMap { ($0 as? NSTextField)?.stringValue }
             FileHandle.standardError.write(

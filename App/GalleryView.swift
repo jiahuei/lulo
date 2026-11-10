@@ -95,10 +95,11 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         emptyState.updateHeadlineSize()
         let titleSize = presentation == .rows ? 34 : min(44, max(30, bounds.width * 0.031))
         heading.font = .systemFont(ofSize: titleSize, weight: presentation == .rows ? .semibold : .bold)
-        heading.attributedStringValue = Theme.headline(
+        let headline = Theme.headline(
             heading.stringValue, size: titleSize, weight: presentation == .rows ? .semibold : .bold,
             tracking: presentation == .rows ? -0.035 : -0.022,
             lineBreak: presentation == .rows ? .byTruncatingTail : .byWordWrapping)
+        if heading.attributedStringValue != headline { heading.attributedStringValue = headline }
         count.font =
             presentation == .rows
             ? .monospacedDigitSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 14)
@@ -493,22 +494,34 @@ final class GalleryThumbnailView: NSImageView {
         image?.draw(
             in: displayedImageRect, from: .zero, operation: .sourceOver,
             fraction: hovered && presentation == .rows ? 0.88 : 1, respectFlipped: true, hints: nil)
-        if failed || (presentation == .rows && (hovered || selected)) {
-            let captionHeight: CGFloat = failed ? 54 : 32
+        if failed || (presentation == .rows && (hovered || selected) && image != nil) {
+            let captionHeight: CGFloat = failed ? 42 : 32
             let bottom = NSRect(
                 x: tile.minX, y: isFlipped ? tile.maxY - captionHeight : tile.minY, width: tile.width,
                 height: captionHeight)
-            NSGradient(starting: .black.withAlphaComponent(0.82), ending: .clear)?.draw(
-                in: bottom, angle: isFlipped ? 90 : -90)
+            if !failed {
+                NSGradient(starting: .black.withAlphaComponent(0.82), ending: .clear)?.draw(
+                    in: bottom, angle: isFlipped ? 90 : -90)
+            }
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineBreakMode = .byTruncatingMiddle
-            let caption = NSAttributedString(
-                string: filename + (failed ? "\nPreview unavailable" : ""),
+            let caption = NSMutableAttributedString(
+                string: filename,
                 attributes: [
-                    .font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: NSColor.white,
+                    .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                    .foregroundColor: failed ? Theme.textPrimary : NSColor.white,
                     .paragraphStyle: paragraph,
                 ])
-            caption.draw(in: bottom.insetBy(dx: 7, dy: 5))
+            if failed {
+                caption.append(
+                    NSAttributedString(
+                        string: "\nPreview unavailable",
+                        attributes: [
+                            .font: NSFont.systemFont(ofSize: 10), .foregroundColor: Theme.textSecondary,
+                            .paragraphStyle: paragraph,
+                        ]))
+            }
+            caption.draw(in: bottom.insetBy(dx: 10, dy: 9))
         }
         if image != nil, let rating, (1...5).contains(rating) {
             let text = NSMutableAttributedString(

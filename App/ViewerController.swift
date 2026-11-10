@@ -142,7 +142,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         galleryButton.setButtonType(.toggle)
         configureButton(
             browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease.circle", action: #selector(showBrowse))
-        refresh.image = refreshGlyph
+        refresh.glyph = refreshGlyph
         configureButton(
             blurred, title: "Blurred Background", symbol: "drop.halffull", action: #selector(toggleBlurredBackground))
         blurred.setButtonType(.toggle)
@@ -195,11 +195,14 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         filterSummary.textColor = Theme.accentText
         filterSummary.lineBreakMode = .byTruncatingTail
         filterSummary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let footer = NSView()
-        for label in [status, rating, filterSummary, zoomLabel] {
-            label.translatesAutoresizingMaskIntoConstraints = false
-            footer.addSubview(label)
-        }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        rating.identifier = .init("StatusRating")
+        let footer = NSStackView(views: [status, rating, filterSummary, spacer, zoomLabel])
+        footer.spacing = 14
+        footer.detachesHiddenViews = true
+        footer.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 4, right: 20)
+        footer.setCustomSpacing(10, after: status)
         let root = NSView()
         window.contentView = root
         background.translatesAutoresizingMaskIntoConstraints = false
@@ -225,15 +228,6 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
             footer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             footer.heightAnchor.constraint(equalToConstant: 34),
-            status.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: 16),
-            status.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
-            rating.leadingAnchor.constraint(equalTo: status.trailingAnchor, constant: 12),
-            rating.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
-            filterSummary.leadingAnchor.constraint(equalTo: rating.trailingAnchor, constant: 12),
-            filterSummary.trailingAnchor.constraint(lessThanOrEqualTo: zoomLabel.leadingAnchor, constant: -12),
-            zoomLabel.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -16),
-            zoomLabel.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
-            filterSummary.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
         ])
         canvas.zoomChanged = { [weak self] in self?.updateZoomStatus() }
         canvas.navigate = { [weak self] delta in self?.navigate(delta) }
@@ -253,13 +247,14 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         window.makeFirstResponder(canvas)
     }
 
-    private func configureButton(_ button: NSButton, title: String, symbol: String, action: Selector) {
+    private func configureButton(_ button: CapsuleButton, title: String, symbol: String, action: Selector) {
         let identifiers = [
             "Show gallery": "Gallery", "Previous image": "Previous", "Next image": "Next",
             "Show metadata": "Metadata", "Move to Trash": "Trash", "Refresh (⌘R)": "Refresh", "Sort & Filter": "Browse",
         ]
         button.identifier = .init(identifiers[title] ?? title)
-        button.image = Theme.symbol(symbol)
+        button.title = ""
+        button.glyph = Theme.symbol(symbol)
         button.imagePosition = .imageOnly
         button.bezelStyle = .texturedRounded
         button.isBordered = false
@@ -747,7 +742,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         updateSelectedPresentation()
         if manualRefresh && !refreshingFolder && (galleryVisible || !canvas.isLoading) { manualRefresh = false }
         let spinning = manualRefresh && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        refresh.image = spinning ? nil : refreshGlyph
+        refresh.glyph = spinning ? nil : refreshGlyph
         if spinning { refreshSpinner.startAnimation(nil) } else { refreshSpinner.stopAnimation(nil) }
         updateZoomStatus()
     }

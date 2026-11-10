@@ -4,7 +4,7 @@ import AppKit
 /// Radio-type buttons are announced as radio choices with their selected state.
 @MainActor
 final class CapsuleButton: NSButton {
-    override var image: NSImage? {
+    var glyph: NSImage? {
         didSet {
             needsDisplay = true
             invalidateIntrinsicContentSize()
@@ -28,7 +28,7 @@ final class CapsuleButton: NSButton {
         setButtonType(type)
         isBordered = false
         self.title = title
-        image = symbol.flatMap { Theme.symbol($0) }
+        glyph = symbol.flatMap { Theme.symbol($0) }
         setLabel(label)
         self.target = target
         self.action = action
@@ -68,7 +68,7 @@ final class CapsuleButton: NSButton {
     }
 
     override var intrinsicContentSize: NSSize {
-        let content = image?.size.width ?? attributedTitleForDrawing.size().width
+        let content = glyph?.size.width ?? attributedTitleForDrawing.size().width
         return NSSize(width: max(minimumWidth, ceil(content) + 14), height: 28)
     }
 
@@ -98,7 +98,7 @@ final class CapsuleButton: NSButton {
             Theme.hoverFill.setFill()
             shape.fill()
         }
-        if let glyph = image {
+        if let glyph {
             let rect = NSRect(
                 x: (bounds.width - glyph.size.width) / 2, y: (bounds.height - glyph.size.height) / 2,
                 width: glyph.size.width, height: glyph.size.height)
