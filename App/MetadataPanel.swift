@@ -71,7 +71,7 @@ final class MetadataPanel: NSView {
 
     func show(_ details: ImageDetails) {
         name.attributedStringValue = Theme.headline(
-            details.entry.url.lastPathComponent, size: 20, weight: .bold, tracking: -0.02)
+            details.entry.url.lastPathComponent, size: 20, weight: .bold, tracking: -0.02, lineBreak: .byCharWrapping)
         captured.stringValue = details.captureWallClock.map(Theme.captureText) ?? ""
         captured.isHidden = captured.stringValue.isEmpty
         chip.rating = details.entry.rating
