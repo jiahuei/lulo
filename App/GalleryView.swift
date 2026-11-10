@@ -237,7 +237,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         needsLayout = true
         if let details {
             let fields = details.groups.first(where: { $0.name == "Exposure" })?.fields ?? []
-            let captured = details.entry.capturedAt.map(Theme.captureText)
+            let captured = details.entry.capturedAt.map { $0.formatted(date: .abbreviated, time: .shortened) }
             exposure.stringValue = [
                 captured, fields.first(where: { $0.name == "Exposure" })?.value,
                 fields.first(where: { $0.name == "ISO Speed Rating" }).map { "ISO \($0.value)" },

@@ -88,12 +88,4 @@ enum Theme {
         return image
     }
 
-    /// Wall-clock capture time; the date was decoded in UTC, so it is formatted in UTC too.
-    static func captureText(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.setLocalizedDateFormatFromTemplate("dMMMyyyyjmm")
-        return formatter.string(from: date)
-    }
-
 }
