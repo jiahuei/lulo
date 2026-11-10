@@ -112,6 +112,7 @@ enum RenderPreviews {
         try verifyCachedNavigation(fixture: fixture)
         try verifyObsoleteFolderScan(fixture: fixture)
         try verifyGallery(fixture: fixture, output: output)
+        try verifyRefreshAnimation(fixture: fixture)
         try verifyRefreshAndRatings(output: output)
         try verifyAutomaticRefresh()
         try verifyTrashAction(fixture: fixture, output: output)
@@ -126,11 +127,15 @@ enum RenderPreviews {
             let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds)
         else { throw PreviewError.captureFailed }
         for identifier in ["Metadata", "Blurred Background"] {
-            guard let button = toolbarControl(window, identifier) as? NSButton else { throw PreviewError.captureFailed }
+            guard let button = toolbarControl(window, identifier) as? CapsuleButton, button.showsSelection else {
+                throw PreviewError.captureFailed
+            }
             let initial = button.state
             for _ in 0..<3 {
                 button.performClick(nil)
-                guard button.state != initial, !button.isHighlighted else { throw PreviewError.captureFailed }
+                guard button.state != initial, button.isVisuallySelected == (button.state == .on),
+                    !button.isHighlighted
+                else { throw PreviewError.captureFailed }
                 button.performClick(nil)
                 guard button.state == initial, !button.isHighlighted else { throw PreviewError.captureFailed }
             }
@@ -216,7 +221,7 @@ enum RenderPreviews {
             display.buttons[segment].performClick(nil)
             guard display.buttons[segment].accessibilityRole() == .radioButton,
                 display.buttons[segment].accessibilityValue() as? NSNumber == NSNumber(value: true),
-                !display.buttons[segment].isHighlighted,
+                !display.buttons[segment].isHighlighted, display.buttons[segment].isVisuallySelected,
                 canvas.zoom.mode == expected,
                 canvas.zoom.scale == (expected == .fit ? nil : 1)
             else { throw PreviewError.displayToggleFailed }
@@ -537,7 +542,11 @@ enum RenderPreviews {
                 if preview { viewer.showPreview() } else { viewer.showRows() }
                 settle()
                 guard collection.selectionIndexPaths == selected,
-                    slider.accessibilityLabel() == (preview ? "Thumbnail size" : "Row height")
+                    slider.accessibilityLabel() == (preview ? "Thumbnail size" : "Row height"),
+                    let galleryButton = toolbarControl(window, "Gallery") as? CapsuleButton,
+                    !galleryButton.isVisuallySelected,
+                    let layouts = toolbarControl(window, "GalleryLayout") as? ButtonChoices,
+                    layouts.buttons.allSatisfy({ !$0.isVisuallySelected && !$0.isHighlighted })
                 else { throw PreviewError.galleryFailed(line: #line) }
                 let before = slider.doubleValue
                 let mode = preview ? GalleryLayout.preview : .rows
@@ -634,6 +643,17 @@ enum RenderPreviews {
             let browse = toolbarControl(viewer, "Browse")
                 as? NSButton
         else { throw PreviewError.missingFilterControls }
+        for choices in descendants(popover.contentView!).compactMap({ $0 as? ButtonChoices }) {
+            let original = choices.selectedIndex
+            for button in choices.buttons {
+                button.performClick(nil)
+                guard choices.selectedIndex == button.tag,
+                    button.accessibilityValue() as? NSNumber == NSNumber(value: true),
+                    choices.buttons.allSatisfy({ !$0.isVisuallySelected && !$0.isHighlighted })
+                else { throw PreviewError.filterDidNotApply }
+            }
+            choices.buttons[original].performClick(nil)
+        }
         let choices = buttons.filter { $0.action == fiveStars.action }
         guard choices.count == 9, choices.allSatisfy({ $0.state == .off }) else {
             throw PreviewError.filterDidNotClear
@@ -990,6 +1010,67 @@ enum RenderPreviews {
         else { throw PreviewError.navigationFailed }
         print(
             "Verified an active scan stops after one metadata read, preserves the new session, and releases its grant.")
+    }
+
+    /// Ensures the Refresh glyph advances while a manual scan is blocked, stays still for automatic work,
+    /// and returns to its idle frame after the scan/load finish, without retaining selected styling.
+    private static func verifyRefreshAnimation(fixture: URL) throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let imageURL = folder.appendingPathComponent("image.png")
+        try FileManager.default.copyItem(at: fixture, to: imageURL)
+        let gate = ScanCheckpointGate()
+        let viewer = ViewerController(
+            discoverImages: { folder, isCancelled in
+                try ImageLoader.discover(
+                    in: folder,
+                    isCancelled: {
+                        gate.checkpoint()
+                        return isCancelled()
+                    })
+            }, automaticallyRefresh: false)
+        defer {
+            gate.release()
+            viewer.window?.close()
+        }
+        guard let window = viewer.window, let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let refresh = toolbarControl(window, "Refresh") as? CapsuleButton,
+            let idle = refresh.glyph
+        else { throw PreviewError.refreshFailed(line: #line) }
+        func waitUntil(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
+                settle()
+            }
+            guard ready() else { throw PreviewError.refreshFailed(line: #line) }
+        }
+        viewer.open(imageURL)
+        try waitUntil { canvas.image != nil && !canvas.isLoading && window.attachedSheet == nil }
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        try waitUntil { gate.state.paused }
+        settle()
+        guard refresh.glyph === idle else { throw PreviewError.refreshFailed(line: #line) }
+        refresh.performClick(nil)
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            settle()
+            guard refresh.glyph === idle else { throw PreviewError.refreshFailed(line: #line) }
+        } else {
+            try waitUntil { refresh.glyph !== idle }
+            guard refresh.glyph?.tiffRepresentation != idle.tiffRepresentation else {
+                throw PreviewError.refreshFailed(line: #line)
+            }
+        }
+        guard !refresh.isVisuallySelected, !refresh.isHighlighted else {
+            throw PreviewError.refreshFailed(line: #line)
+        }
+        gate.release()
+        try waitUntil { !canvas.isLoading && refresh.glyph === idle }
+        settle()
+        guard refresh.glyph === idle, !gate.state.timedOut else { throw PreviewError.refreshFailed(line: #line) }
+        print("Verified manual Refresh glyph animation, idle automatic scans, and animation cleanup.")
     }
 
     /// Ensures Refresh updates pixels, ratings, and folder membership while keeping the current view and selection.

@@ -67,3 +67,6 @@ No interactive verification has yet been recorded in this repository.
 - [ ] Check inverted selected states, hover and pressed feedback, release outside a button, radio-choice announcements, keyboard focus and disabled controls. Fit / 100% has no inner border. Toolbar order remains Display, Previous/Next, Gallery/Open/Refresh, then Sort/Metadata/Trash.
 - [ ] Confirm the spoke-wheel Refresh icon animates only for a user-started refresh, remains still with Reduce Motion, and stops after completion or failure.
 - [ ] Compare background saturation and brightness in both appearances. Capsules and metadata use translucent fills over the wall or blurred background; Sort & Filter and Trash retain native macOS framing.
+
+- [ ] Click Gallery, Rows/Preview, sort/direction and other action buttons: no selected fill remains after release. Fit / 100%, Blurred Background and Metadata retain selected styling as appropriate; filter checkmarks and accessible radio values remain correct.
+- [ ] Refresh a folder and watch the spoke glyph itself animate through the scan/load, then stop on completion or failure. Repeat during native pointer tracking, with Reduce Motion, and while closing the window. Automatic refresh leaves the glyph still.

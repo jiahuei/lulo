@@ -39,7 +39,8 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private var gallerySizeControls: NSStackView?
     private let smaller = CapsuleButton()
     private let larger = CapsuleButton()
-    private let refreshSpinner = NSProgressIndicator()
+    private var refreshTimer: Timer?
+    private var refreshPhase = 0
     private let refreshGlyph = Theme.refreshGlyph(phase: 0)
     private var sliderWidth: NSLayoutConstraint?
     private var breadcrumbWidth: NSLayoutConstraint?
@@ -134,18 +135,20 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         configureButton(next, title: "Next image", symbol: "chevron.right", action: #selector(nextImage))
         configureButton(info, title: "Show metadata", symbol: "sidebar.right", action: #selector(toggleSidebar))
         info.setButtonType(.toggle)
+        info.showsSelection = true
         configureButton(trash, title: "Move to Trash", symbol: "trash", action: #selector(trashCurrentImage))
         configureButton(
             refresh, title: "Refresh (⌘R)", symbol: "arrow.clockwise", action: #selector(refreshImages))
         configureButton(
             galleryButton, title: "Show gallery", symbol: "square.grid.2x2", action: #selector(toggleGallery))
-        galleryButton.setButtonType(.toggle)
         configureButton(
             browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease.circle", action: #selector(showBrowse))
         refresh.glyph = refreshGlyph
         configureButton(
             blurred, title: "Blurred Background", symbol: "drop.halffull", action: #selector(toggleBlurredBackground))
         blurred.setButtonType(.toggle)
+        blurred.showsSelection = true
+        for button in display.buttons { button.showsSelection = true }
         configureButton(
             smaller, title: "Smaller thumbnails", symbol: "square.grid.3x3", action: #selector(smallerThumbnails))
         configureButton(larger, title: "Larger thumbnails", symbol: "square", action: #selector(largerThumbnails))
@@ -156,10 +159,6 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         sizeSlider.target = self
         sizeSlider.action = #selector(thumbnailSizeChanged)
         breadcrumb.showGallery = { [weak self] in self?.setGalleryVisible(true) }
-        refreshSpinner.style = .spinning
-        refreshSpinner.controlSize = .small
-        refreshSpinner.isDisplayedWhenStopped = false
-        refreshSpinner.setAccessibilityLabel("Refreshing images")
         makeBrowsePopover()
         let toolbar = NSToolbar(identifier: "Viewer")
         toolbar.delegate = self
@@ -741,10 +740,36 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         updatePresentationControls()
         updateSelectedPresentation()
         if manualRefresh && !refreshingFolder && (galleryVisible || !canvas.isLoading) { manualRefresh = false }
-        let spinning = manualRefresh && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        refresh.glyph = spinning ? nil : refreshGlyph
-        if spinning { refreshSpinner.startAnimation(nil) } else { refreshSpinner.stopAnimation(nil) }
+        updateRefreshAnimation()
         updateZoomStatus()
+    }
+
+    private func updateRefreshAnimation() {
+        guard manualRefresh && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            refreshTimer?.invalidate()
+            refreshTimer = nil
+            refreshPhase = 0
+            refresh.glyph = refreshGlyph
+            return
+        }
+        guard refreshTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] timer in
+            // Installed on the main run loop below; keep animating during native event tracking.
+            MainActor.assumeIsolated {
+                guard let self else {
+                    timer.invalidate()
+                    return
+                }
+                if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    self.updateRefreshAnimation()
+                    return
+                }
+                self.refreshPhase = (self.refreshPhase + 1) % 8
+                self.refresh.glyph = Theme.refreshGlyph(phase: self.refreshPhase)
+            }
+        }
+        refreshTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func navigate(_ delta: Int) {
@@ -799,7 +824,6 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         guard let openedURL else { return }
         let parent = openedURL.deletingLastPathComponent().standardizedFileURL
         guard folderAccess?.url.standardizedFileURL == parent else {
-            galleryButton.state = .off
             requestFolder(parent, generation: session.generation, showGallery: true)
             return
         }
@@ -815,7 +839,6 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
 
     private func setGalleryVisible(_ visible: Bool) {
         galleryVisible = visible
-        galleryButton.state = visible ? .on : .off
         galleryButton.toolTip = visible ? "Return to image" : "Show gallery"
         galleryButton.setAccessibilityLabel(visible ? "Return to image" : "Show gallery")
         canvas.isHidden = visible
@@ -976,6 +999,11 @@ extension ViewerController {
         }
     }
 
+    func windowWillClose(_ notification: Notification) {
+        manualRefresh = false
+        updateRefreshAnimation()
+    }
+
     func windowDidResize(_ notification: Notification) { updatePresentationControls() }
 
     func windowDidEndSheet(_ notification: Notification) {
@@ -1014,14 +1042,6 @@ extension ViewerController: NSToolbarDelegate {
             let open = CapsuleButton()
             configureButton(open, title: "Open image", symbol: "photo", action: #selector(openPanel))
             views = [galleryButton, open, refresh]
-            refreshSpinner.translatesAutoresizingMaskIntoConstraints = false
-            refresh.addSubview(refreshSpinner)
-            NSLayoutConstraint.activate([
-                refreshSpinner.centerXAnchor.constraint(equalTo: refresh.centerXAnchor),
-                refreshSpinner.centerYAnchor.constraint(equalTo: refresh.centerYAnchor),
-                refreshSpinner.widthAnchor.constraint(equalToConstant: 18),
-                refreshSpinner.heightAnchor.constraint(equalToConstant: 18),
-            ])
             item.label = "Gallery, Open and Refresh"
         case "Navigation":
             views = [previous, next]

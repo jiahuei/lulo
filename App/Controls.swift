@@ -10,6 +10,9 @@ final class CapsuleButton: NSButton {
             invalidateIntrinsicContentSize()
         }
     }
+    // Logical radio/toggle values remain accessible even when their buttons use momentary styling.
+    var showsSelection = false { didSet { needsDisplay = true } }
+    var isVisuallySelected: Bool { showsSelection && state == .on }
     var minimumWidth: CGFloat = 32 { didSet { invalidateIntrinsicContentSize() } }
     var badgeCount = 0 { didSet { needsDisplay = true } }
     private var hoverTracking: NSTrackingArea?
@@ -76,13 +79,13 @@ final class CapsuleButton: NSButton {
         NSAttributedString(
             string: title,
             attributes: [
-                .font: NSFont.systemFont(ofSize: 12, weight: state == .on ? .semibold : .medium),
+                .font: NSFont.systemFont(ofSize: 12, weight: isVisuallySelected ? .semibold : .medium),
                 .foregroundColor: contentColor,
             ])
     }
 
     private var contentColor: NSColor {
-        state == .on ? Theme.onText : hovering && isEnabled ? Theme.textPrimary : Theme.textSecondary
+        isVisuallySelected ? Theme.onText : hovering && isEnabled ? Theme.textPrimary : Theme.textSecondary
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -91,7 +94,7 @@ final class CapsuleButton: NSButton {
         defer { context.restoreGState() }
         context.setAlpha(isEnabled ? (isHighlighted ? 0.7 : 1) : 0.32)
         let shape = NSBezierPath(roundedRect: bounds, xRadius: 9, yRadius: 9)
-        if state == .on {
+        if isVisuallySelected {
             Theme.onFill.setFill()
             shape.fill()
         } else if (hovering || isHighlighted) && isEnabled {
