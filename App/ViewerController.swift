@@ -779,11 +779,12 @@ final class ViewerController: NSWindowController {
         if animate, refreshTimer == nil {
             // Eight steps per 0.8-second turn, like a spinning progress indicator.
             let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] timer in
+                // Invalidated here rather than inside the main-actor block, which cannot take the timer.
+                guard let self else {
+                    timer.invalidate()
+                    return
+                }
                 MainActor.assumeIsolated {
-                    guard let self else {
-                        timer.invalidate()
-                        return
-                    }
                     // Reduce Motion can be turned on mid-refresh; the next tick stops the wheel.
                     if Theme.reduceMotion {
                         self.updateRefreshIndicator()
