@@ -75,7 +75,7 @@ enum RenderPreviews {
                 try capture(popover, to: output.appendingPathComponent("browse-dark.png"))
                 try verifyFilterCheckboxes(popover: popover, viewer: window)
                 try capture(popover, to: output.appendingPathComponent("browse-selected-dark.png"))
-                try capture(window, to: output.appendingPathComponent("filter-badge-dark.png"))
+                try capture(window, to: output.appendingPathComponent("filter-badge-dark.png"), activate: false)
                 browse.performClick(nil)
                 settle()
                 guard let canvas = descendants(window.contentView!).compactMap({ $0 as? ImageCanvas }).first,
@@ -174,7 +174,7 @@ enum RenderPreviews {
         )
     }
 
-    /// Ensures photo shadows do not add an opaque backing beneath transparent source pixels.
+    /// Ensures the canvas preserves transparent source pixels against the window background.
     private static func verifyTransparentCanvas(_ window: NSWindow) throws {
         guard let root = window.contentView,
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
@@ -1193,7 +1193,12 @@ enum RenderPreviews {
         [view] + view.subviews.flatMap(descendants)
     }
 
-    private static func capture(_ window: NSWindow, to url: URL) throws {
+    private static func capture(_ window: NSWindow, to url: URL, activate: Bool = true) throws {
+        if activate && window.canBecomeKey {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            settle()
+        }
         guard let view = window.contentView?.superview else { throw PreviewError.missingWindow }
         view.layoutSubtreeIfNeeded()
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {

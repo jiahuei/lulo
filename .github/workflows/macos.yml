@@ -50,7 +50,9 @@ jobs:
           BASELINE_REF: ${{ github.event.pull_request.base.sha }}
         run: bash tools/benchmark-navigation.sh "$BASELINE_REF" | tee build/navigation-benchmark.txt
       - name: Measure canvas painting
-        run: bash tools/benchmark-canvas.sh | tee build/canvas-benchmark.txt
+        env:
+          BASELINE_REF: ${{ github.event.pull_request.base.sha }}
+        run: bash tools/benchmark-canvas.sh "$BASELINE_REF" | tee build/canvas-benchmark.txt
       - name: Save test app
         id: app
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

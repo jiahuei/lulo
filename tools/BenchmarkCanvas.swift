@@ -11,8 +11,6 @@ enum BenchmarkCanvas {
         let canvas = ImageCanvas(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
         canvas.image = photo
         canvas.appearance = NSAppearance(named: .aqua)
-        let label = NSTextField(labelWithString: "")
-        canvas.zoomChanged = { label.stringValue = canvas.zoomDescription }
         for backingScale in [1, 2] {
             let pixelsWide = 1200 * backingScale
             let pixelsHigh = 800 * backingScale
