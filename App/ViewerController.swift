@@ -128,6 +128,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         display.segmentCount = 2
         display.trackingMode = .selectOne
         display.segmentStyle = .texturedRounded
+        display.cell?.isBordered = false
         display.setImage(
             NSImage(systemSymbolName: "arrow.down.right.and.arrow.up.left", accessibilityDescription: "Fit to Window"),
             forSegment: 0)
