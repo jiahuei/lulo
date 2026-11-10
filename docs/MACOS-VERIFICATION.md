@@ -70,3 +70,6 @@ No interactive verification has yet been recorded in this repository.
 
 - [ ] Click Gallery, Rows/Preview, sort/direction and other action buttons: no selected fill remains after release. Fit / 100%, Blurred Background and Metadata retain selected styling as appropriate; filter checkmarks and accessible radio values remain correct.
 - [ ] Refresh a folder and watch the spoke glyph itself animate through the scan/load, then stop on completion or failure. Repeat during native pointer tracking, with Reduce Motion, and while closing the window. Automatic refresh leaves the glyph still.
+
+- [ ] In Preview, reverse sort direction and filter out other images while keeping the selected image. Its poster and caption remain visible. Replace that file and Refresh; the poster and details update.
+- [ ] Paint tiny icons at 100%, images at 1% zoom, and thin panoramas in Fit at 1x/2x backing scale. Rounded corners remain inside the image and painting does not crash.

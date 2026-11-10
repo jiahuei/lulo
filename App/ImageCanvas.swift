@@ -145,7 +145,9 @@ final class ImageCanvas: NSView {
         let rect = displayedImageRect
         context.interpolationQuality = scale >= 1 ? .none : .high
         context.saveGState()
-        context.addPath(CGPath(roundedRect: rect, cornerWidth: 3, cornerHeight: 3, transform: nil))
+        // Thin panoramas and zoomed-out icons can be smaller than the usual corner diameter.
+        let radius = min(3, rect.width / 2, rect.height / 2)
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
         context.clip()
         context.draw(image, in: rect)
         context.restoreGState()

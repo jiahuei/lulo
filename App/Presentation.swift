@@ -140,7 +140,10 @@ struct BackgroundImages: @unchecked Sendable {
 // Only the current thumbnail variants are retained. Core Image work has its own actor
 // so it cannot delay full-resolution decoding or gallery thumbnails.
 actor BackgroundRenderer {
-    private let context = CIContext(options: [.cacheIntermediates: false])
+    // CSS brightness and saturation operate on gamma-encoded sRGB, not linear-light values.
+    private let context = CIContext(options: [
+        .cacheIntermediates: false, .workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+    ])
     func render(_ thumbnail: LoadedThumbnail) -> BackgroundImages? {
         let source = CIImage(cgImage: thumbnail.image)
         let blurred = source.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 24])

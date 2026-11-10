@@ -173,7 +173,8 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         self.fileAccess = fileAccess
         let mode = preferences.galleryLayout
         let size = mode == .rows ? preferences.rowsTargetHeight : preferences.previewTileSize
-        let changed = self.entries != entries || self.generation != generation
+        let refreshed = self.generation != generation
+        let changed = self.entries != entries || refreshed
         let layoutChanged = mode != presentation || size != targetSize
         presentation = mode
         targetSize = size
@@ -212,14 +213,15 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         poster.isHidden = mode != .preview || entries.isEmpty
         heading.isHidden = entries.isEmpty
         count.isHidden = entries.isEmpty
-        if self.selectedURL != selectedURL || changed {
+        // Reordering/filtering does not invalidate the selected image; refresh still does.
+        if self.selectedURL != selectedURL || refreshed {
             self.selectedURL = selectedURL
             fullPreview = false
             posterImage.image = nil
             caption.stringValue = selectedURL?.lastPathComponent ?? ""
             exposure.stringValue = ""
-            posterRating.setRating(entries.first(where: { $0.url == selectedURL })?.rating)
         }
+        posterRating.setRating(entries.first(where: { $0.url == selectedURL })?.rating)
         let selection = entries.firstIndex(where: { $0.url == selectedURL }).map { IndexPath(item: $0, section: 0) }
         let paths: Set<IndexPath> = selection.map { [$0] } ?? []
         let selectionChanged = collection.selectionIndexPaths != paths

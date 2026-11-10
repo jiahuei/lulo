@@ -49,6 +49,8 @@ enum RenderPreviews {
         try verifyTransparentCanvas(window)
         try verifyDisplayToggle(viewer)
         try verifyReviewRegressions(viewer)
+        try verifySmallCanvasImages()
+        try verifyBackgroundColorSpace()
         try capture(window, to: output.appendingPathComponent("image-light.png"))
         viewer.toggleSidebar()
         settle()
@@ -112,12 +114,167 @@ enum RenderPreviews {
         try verifyCachedNavigation(fixture: fixture)
         try verifyObsoleteFolderScan(fixture: fixture)
         try verifyGallery(fixture: fixture, output: output)
+        try verifyPreviewRetention()
         try verifyRefreshAnimation(fixture: fixture)
         try verifyRefreshAndRatings(output: output)
         try verifyAutomaticRefresh()
         try verifyTrashAction(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures tiny icons, thin panoramas and minimum zoom paint at both raster scales without invalid corners.
+    private static func verifySmallCanvasImages() throws {
+        let canvas = ImageCanvas(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
+        for (width, height, mode) in [(2, 2, "actual"), (10000, 20, "fit"), (100, 100, "minimum")] {
+            canvas.image = try solidImage(width: width, height: height)
+            canvas.resetZoom(to: mode == "actual" ? .actualSize : .fit)
+            if mode == "minimum" {
+                for _ in 0..<100 { canvas.zoom.scroll(up: false, currentScale: canvas.zoom.scale ?? 1) }
+            }
+            let rect = canvas.displayedImageRect
+            guard min(rect.width, rect.height) < 6 else { throw PreviewError.clippedCanvas }
+            for scale in [1, 2] {
+                guard
+                    let context = CGContext(
+                        data: nil, width: 1000 * scale, height: 700 * scale, bitsPerComponent: 8,
+                        bytesPerRow: 4000 * scale,
+                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                else { throw PreviewError.captureFailed }
+                context.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                canvas.draw(canvas.bounds)
+                NSGraphicsContext.restoreGraphicsState()
+                guard let image = context.makeImage(),
+                    let center = NSBitmapImageRep(cgImage: image).colorAt(x: 500 * scale, y: 350 * scale),
+                    center.alphaComponent > 0.1
+                else { throw PreviewError.clippedCanvas }
+            }
+        }
+        print("Verified tiny-icon, thin-panorama and minimum-zoom canvas painting at 1x/2x raster scales.")
+    }
+
+    /// Ensures background brightness multiplies encoded sRGB values, catching accidental linear-light filtering.
+    private static func verifyBackgroundColorSpace() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let image = try solidImage(width: 32, height: 32)
+        guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+            throw PreviewError.captureFailed
+        }
+        try data.write(to: url)
+        let loader = ThumbnailLoader()
+        let renderer = BackgroundRenderer()
+        var finished = false
+        var images: BackgroundImages?
+        let task = Task {
+            defer { finished = true }
+            if let thumbnail = try? await loader.load(at: url, access: FileAccess(url: url)) {
+                images = await renderer.render(thumbnail)
+            }
+        }
+        defer { task.cancel() }
+        let deadline = Date().addingTimeInterval(15)
+        while !finished && Date() < deadline { settle() }
+        guard let images else { throw PreviewError.captureFailed }
+        for (image, multiplier) in [(images.light, 1.06), (images.dark, 0.55)] {
+            guard let color = NSBitmapImageRep(cgImage: image).colorAt(x: 16, y: 16)?.usingColorSpace(.sRGB),
+                [color.redComponent, color.greenComponent, color.blueComponent].allSatisfy({
+                    abs($0 - 0.5 * multiplier) < 0.015
+                })
+            else { throw PreviewError.captureFailed }
+        }
+        print("Verified light/dark background brightness in gamma-encoded sRGB.")
+    }
+
+    /// Provides neutral sRGB pixels without metadata for canvas and background rendering regressions.
+    private static func solidImage(width: Int, height: Int) throws -> CGImage {
+        guard
+            let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { throw PreviewError.captureFailed }
+        context.setFillColor(CGColor(colorSpace: context.colorSpace!, components: [0.5, 0.5, 0.5, 1])!)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else { throw PreviewError.captureFailed }
+        return image
+    }
+
+    /// Ensures sort/filter actions retain a loaded poster and caption, while explicit refresh replaces its pixels.
+    private static func verifyPreviewRetention() throws {
+        let saved = Preferences(defaults: .standard)
+        Preferences().save(to: .standard)
+        defer { saved.save(to: .standard) }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = folder.appendingPathComponent("a.png")
+        try makeFixture(at: first, rating: 1)
+        try makeFixture(at: folder.appendingPathComponent("b.png"), rating: 2)
+        let viewer = ViewerController(automaticallyRefresh: false)
+        guard let window = viewer.window, let root = window.contentView,
+            let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
+            let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let browse = toolbarControl(window, "Browse") as? NSButton
+        else { throw PreviewError.galleryFailed(line: #line) }
+        defer { window.close() }
+        func waitUntil(_ ready: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !ready() && Date() < deadline {
+                (window.attachedSheet as? NSOpenPanel)?.cancel(nil)
+                settle()
+            }
+            guard ready() else { throw PreviewError.galleryFailed(line: #line) }
+        }
+        viewer.open(first)
+        try waitUntil { canvas.image != nil && window.attachedSheet == nil }
+        viewer.useAuthorizedFolder(FileAccess(url: folder))
+        viewer.showPreview()
+        guard
+            let poster = descendants(gallery).compactMap({ $0 as? NSImageView })
+                .first(where: { !($0 is GalleryThumbnailView) }), let container = poster.superview,
+            let caption = container.subviews.compactMap({ $0 as? NSTextField })
+                .first(where: { !($0 is RatingChip) && $0.stringValue != "a.png" })
+        else { throw PreviewError.galleryFailed(line: #line) }
+        try waitUntil { collection.numberOfItems(inSection: 0) == 2 && poster.image?.size.width == 1200 }
+        guard let original = poster.image, !caption.stringValue.isEmpty else {
+            throw PreviewError.galleryFailed(line: #line)
+        }
+        let originalCaption = caption.stringValue
+        browse.performClick(nil)
+        settle()
+        guard
+            let popover = NSApp.windows.first(where: {
+                $0 !== window && $0.isVisible
+                    && $0.contentView.map {
+                        descendants($0).compactMap { $0 as? NSButton }.contains { $0.title == "Descending" }
+                    } == true
+            }), let content = popover.contentView,
+            let descending = descendants(content).compactMap({ $0 as? NSButton }).first(where: {
+                $0.title == "Descending"
+            }),
+            let oneStar = descendants(content).compactMap({ $0 as? NSButton }).first(where: { $0.title == "1 Star" })
+        else { throw PreviewError.missingPopover }
+        descending.performClick(nil)
+        guard poster.image === original, caption.stringValue == originalCaption,
+            collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)]
+        else { throw PreviewError.galleryFailed(line: #line) }
+        oneStar.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 1, poster.image === original,
+            caption.stringValue == originalCaption
+        else { throw PreviewError.galleryFailed(line: #line) }
+        oneStar.performClick(nil)
+        browse.performClick(nil)
+        try makeFixture(at: first, rating: 1, orientation: 6, aperture: 7.1)
+        viewer.refreshImages()
+        try waitUntil { poster.image?.size.width == 800 && poster.image?.size.height == 1200 }
+        guard poster.image !== original, caption.stringValue.contains("f/7.1") else {
+            throw PreviewError.galleryFailed(line: #line)
+        }
+        print("Verified Preview poster/caption retention after sorting and filtering, and replacement after Refresh.")
     }
 
     /// Ensures native click states, unobscured layout, larger fit images, and painting without status mutations.
@@ -1313,7 +1470,9 @@ enum RenderPreviews {
         }
     }
 
-    private static func makeFixture(at url: URL, rating: Int? = nil, orientation: Int = 1) throws {
+    private static func makeFixture(at url: URL, rating: Int? = nil, orientation: Int = 1, aperture: Double = 2.8)
+        throws
+    {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
             let context = CGContext(
                 data: nil, width: 1200, height: 800, bitsPerComponent: 8, bytesPerRow: 4800,
@@ -1341,7 +1500,7 @@ enum RenderPreviews {
         let properties: [CFString: Any] = [
             kCGImagePropertyOrientation: orientation,
             kCGImagePropertyExifDictionary: [
-                "DateTimeOriginal": "2026:01:02 03:04:05", "FNumber": 2.8, "FocalLength": 35,
+                "DateTimeOriginal": "2026:01:02 03:04:05", "FNumber": aperture, "FocalLength": 35,
             ],
             kCGImagePropertyTIFFDictionary: ["Make": "Synthetic Camera", "Model": "Preview Fixture", "Artist": "Lulo"],
         ]
