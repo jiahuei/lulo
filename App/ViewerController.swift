@@ -1035,8 +1035,12 @@ extension ViewerController {
             ["Files", "Navigation", "Display", "Actions"].contains($0.itemIdentifier.rawValue)
         }
         let controlsWidth = groups.reduce(CGFloat.zero) { $0 + ($1.view?.fittingSize.width ?? 0) }
-        // Reserve the native traffic-light area and item spacing; measure the actual controls.
-        breadcrumbWidth?.constant = max(40, width - controlsWidth - 120)
+        let trafficLightsWidth =
+            window?.standardWindowButton(.zoomButton).map {
+                $0.convert($0.bounds, to: window?.contentView).maxX
+            } ?? 0
+        let itemSpacing = CGFloat(groups.count + 2) * 16
+        breadcrumbWidth?.constant = max(40, width - controlsWidth - trafficLightsWidth - itemSpacing)
     }
 
     private func updateZoomStatus() {
@@ -1113,6 +1117,8 @@ extension ViewerController: NSToolbarDelegate {
     ) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: identifier)
         item.visibilityPriority = .high
+        // Each group has independently enabled children, updated from the viewer's state.
+        item.autovalidates = false
         if identifier.rawValue == "Breadcrumb" {
             breadcrumb.translatesAutoresizingMaskIntoConstraints = false
             breadcrumbWidth = breadcrumb.widthAnchor.constraint(equalToConstant: 200)
@@ -1143,7 +1149,7 @@ extension ViewerController: NSToolbarDelegate {
         case "Display":
             for control in [display, galleryLayout] {
                 control.translatesAutoresizingMaskIntoConstraints = false
-                control.widthAnchor.constraint(equalToConstant: 72).isActive = true
+                control.widthAnchor.constraint(equalToConstant: control === display ? 96 : 72).isActive = true
                 control.heightAnchor.constraint(equalToConstant: 28).isActive = true
             }
             sizeSlider.translatesAutoresizingMaskIntoConstraints = false

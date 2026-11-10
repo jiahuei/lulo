@@ -130,6 +130,7 @@ enum RenderPreviews {
                 guard button.state == initial, !button.isHighlighted else { throw PreviewError.captureFailed }
             }
         }
+        settle()
         let callback = canvas.zoomChanged
         var updates = 0
         canvas.zoomChanged = {
@@ -158,16 +159,16 @@ enum RenderPreviews {
             rect: tile.bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: tile, userInfo: nil)
         tile.addTrackingArea(area)
         tile.updateTrackingAreas()
-        guard tile.trackingAreas.contains(area) else { throw PreviewError.galleryFailed }
+        guard tile.trackingAreas.contains(area) else { throw PreviewError.galleryFailed(line: #line) }
         let original = tile.displayedImageRect
         guard
             let event = NSEvent.mouseEvent(
                 with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
                 context: nil, eventNumber: 0, clickCount: 0, pressure: 0)
-        else { throw PreviewError.galleryFailed }
+        else { throw PreviewError.galleryFailed(line: #line) }
         tile.mouseEntered(with: event)
         tile.resetHover()
-        guard tile.displayedImageRect == original else { throw PreviewError.galleryFailed }
+        guard tile.displayedImageRect == original else { throw PreviewError.galleryFailed(line: #line) }
         print(
             "Verified native toggle release, safe-area layout, 8-point fit inset, pure canvas painting, and hover reset."
         )
@@ -264,7 +265,7 @@ enum RenderPreviews {
             let display = toolbarControl(window, "Display")
                 as? NSSegmentedControl,
             let trash = toolbarControl(window, "Trash") as? NSButton
-        else { throw PreviewError.galleryFailed }
+        else { throw PreviewError.galleryFailed(line: #line) }
         defer { window.close() }
         window.setContentSize(NSSize(width: 1000, height: 680))
         func waitUntil(_ ready: () -> Bool) throws {
@@ -273,7 +274,7 @@ enum RenderPreviews {
                 if let panel = window.attachedSheet as? NSOpenPanel { panel.cancel(nil) }
                 settle()
             }
-            guard ready() else { throw PreviewError.galleryFailed }
+            guard ready() else { throw PreviewError.galleryFailed(line: #line) }
         }
         func key(_ code: UInt16) throws {
             let characters = code == 124 ? "\u{F703}" : "\r"
@@ -283,7 +284,7 @@ enum RenderPreviews {
                     windowNumber: window.windowNumber, context: nil, characters: characters,
                     charactersIgnoringModifiers: characters,
                     isARepeat: false, keyCode: code)
-            else { throw PreviewError.galleryFailed }
+            else { throw PreviewError.galleryFailed(line: #line) }
             collection.keyDown(with: event)
         }
         /// Ensures loaded and reused cells announce their own rating, including zero and missing ratings.
@@ -304,7 +305,7 @@ enum RenderPreviews {
         canvas.resetZoom(to: .actualSize)
         viewer.toggleGallery()
         guard gallery.isHidden, collection.numberOfItems(inSection: 0) == 0, canvas.zoom.mode == .actualSize else {
-            throw PreviewError.galleryFailed
+            throw PreviewError.galleryFailed(line: #line)
         }
         (window.attachedSheet as? NSOpenPanel)?.cancel(nil)
         settle()
@@ -319,9 +320,9 @@ enum RenderPreviews {
             collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)],
             !viewer.canTrashCurrentImage, !trash.isEnabled, !display.isEnabled,
             display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
-        else { throw PreviewError.galleryFailed }
+        else { throw PreviewError.galleryFailed(line: #line) }
         viewer.trashCurrentImage()
-        guard window.attachedSheet == nil else { throw PreviewError.galleryFailed }
+        guard window.attachedSheet == nil else { throw PreviewError.galleryFailed(line: #line) }
         try waitUntil {
             descendants(gallery).compactMap { $0 as? GalleryThumbnailView }.contains { $0.failed }
         }
@@ -346,7 +347,7 @@ enum RenderPreviews {
 
         try key(124)
         guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
-            throw PreviewError.galleryFailed
+            throw PreviewError.galleryFailed(line: #line)
         }
         try key(36)
         try waitUntil { gallery.isHidden && viewer.canTrashCurrentImage && window.title == "photo2.png" }
@@ -355,7 +356,7 @@ enum RenderPreviews {
         }
         viewer.toggleGallery()
         guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
-            throw PreviewError.galleryFailed
+            throw PreviewError.galleryFailed(line: #line)
         }
         window.appearance = NSAppearance(named: .darkAqua)
         window.setContentSize(NSSize(width: 720, height: 480))
@@ -371,7 +372,7 @@ enum RenderPreviews {
         guard
             let browse = toolbarControl(window, "Browse")
                 as? NSButton
-        else { throw PreviewError.galleryFailed }
+        else { throw PreviewError.galleryFailed(line: #line) }
         browse.performClick(nil)
         settle()
         guard
@@ -391,20 +392,20 @@ enum RenderPreviews {
                 .first(where: { $0.title == "JPEG" }),
             let png = descendants(popover.contentView!).compactMap({ $0 as? NSButton })
                 .first(where: { $0.title == "PNG" })
-        else { throw PreviewError.galleryFailed }
+        else { throw PreviewError.galleryFailed(line: #line) }
         fiveStars.performClick(nil)
-        guard collection.numberOfItems(inSection: 0) == 1 else { throw PreviewError.galleryFailed }
+        guard collection.numberOfItems(inSection: 0) == 1 else { throw PreviewError.galleryFailed(line: #line) }
         try waitUntil { thumbnailsReady() }
         guard collection.item(at: IndexPath(item: 0, section: 0))?.textField?.stringValue == "photo5.png" else {
-            throw PreviewError.galleryFailed
+            throw PreviewError.galleryFailed(line: #line)
         }
         fourStars.performClick(nil)
-        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.galleryFailed }
+        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.galleryFailed(line: #line) }
         try waitUntil { thumbnailsReady() }
         jpeg.performClick(nil)
-        guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
+        guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed(line: #line) }
         png.performClick(nil)
-        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.galleryFailed }
+        guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.galleryFailed(line: #line) }
         try waitUntil { thumbnailsReady() }
         png.performClick(nil)
         browse.performClick(nil)
@@ -412,13 +413,13 @@ enum RenderPreviews {
             let clear = descendants(gallery).compactMap({ $0 as? NSButton }).first(where: {
                 $0.title == "Clear Filters"
             })
-        else { throw PreviewError.galleryFailed }
+        else { throw PreviewError.galleryFailed(line: #line) }
         clear.performClick(nil)
         try waitUntil { collection.numberOfItems(inSection: 0) == 81 }
         // A new explicit open must close the gallery and discard its old cells and thumbnail requests.
         viewer.open(fixture)
         try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == fixture.lastPathComponent }
-        guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed }
+        guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed(line: #line) }
         print(
             "Verified gallery permissions, rated thumbnails, keyboard opening, reuse, multi-select filters, Trash availability, and session reset."
         )
@@ -520,7 +521,7 @@ enum RenderPreviews {
             let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
             let slider = toolbarControl(window, "ThumbnailSize") as? NSSlider
-        else { throw PreviewError.galleryFailed }
+        else { throw PreviewError.galleryFailed(line: #line) }
         let selected = collection.selectionIndexPaths
         for width in [1000.0, 720] {
             window.setContentSize(NSSize(width: width, height: 680))
@@ -529,7 +530,7 @@ enum RenderPreviews {
                 settle()
                 guard collection.selectionIndexPaths == selected,
                     slider.accessibilityLabel() == (preview ? "Thumbnail size" : "Row height")
-                else { throw PreviewError.galleryFailed }
+                else { throw PreviewError.galleryFailed(line: #line) }
                 let before = slider.doubleValue
                 let mode = preview ? GalleryLayout.preview : .rows
                 slider.doubleValue = mode.sizeRange.lowerBound
@@ -537,7 +538,7 @@ enum RenderPreviews {
                 guard slider.accessibilityPerformIncrement(),
                     slider.doubleValue == mode.adjustedSize(mode.sizeRange.lowerBound, steps: 1),
                     slider.accessibilityPerformDecrement(), slider.doubleValue == mode.sizeRange.lowerBound
-                else { throw PreviewError.galleryFailed }
+                else { throw PreviewError.galleryFailed(line: #line) }
                 slider.doubleValue = before
                 slider.sendAction(slider.action, to: slider.target)
                 guard
@@ -545,28 +546,33 @@ enum RenderPreviews {
                         with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                         windowNumber: window.windowNumber, context: nil, characters: "\u{F703}",
                         charactersIgnoringModifiers: "\u{F703}", isARepeat: false, keyCode: 124)
-                else { throw PreviewError.galleryFailed }
+                else { throw PreviewError.galleryFailed(line: #line) }
                 window.makeFirstResponder(slider)
                 slider.keyDown(with: arrow)
                 guard slider.doubleValue == before + (preview ? 6 : 10), collection.selectionIndexPaths == selected
                 else {
-                    throw PreviewError.galleryFailed
+                    throw PreviewError.galleryFailed(line: #line)
                 }
                 viewer.smallerThumbnails()
                 viewer.largerThumbnails()
                 guard slider.doubleValue > before, collection.selectionIndexPaths == selected else {
-                    throw PreviewError.galleryFailed
+                    throw PreviewError.galleryFailed(line: #line)
                 }
                 slider.doubleValue = before
                 slider.sendAction(slider.action, to: slider.target)
-                guard abs(root.bounds.width - width) < 0.5 else { throw PreviewError.galleryFailed }
+                guard abs(root.bounds.width - width) < 0.5 else { throw PreviewError.galleryFailed(line: #line) }
                 let required = ["Files", "Navigation", "Display", "Actions"]
                 guard
                     required.allSatisfy({ name in
                         window.toolbar?.visibleItems?.contains { $0.itemIdentifier.rawValue == name } == true
                     })
                 else {
-                    throw PreviewError.galleryFailed
+                    let widths =
+                        window.toolbar?.items.map {
+                            "\($0.itemIdentifier.rawValue): fit=\($0.view?.fittingSize.width ?? 0), frame=\($0.view?.frame.width ?? 0)"
+                        } ?? []
+                    FileHandle.standardError.write(Data("Toolbar layout: \(widths)\n".utf8))
+                    throw PreviewError.galleryFailed(line: #line)
                 }
                 if preview {
                     let chips = descendants(gallery).compactMap { $0 as? RatingChip }.filter { !$0.isHidden }
@@ -597,7 +603,7 @@ enum RenderPreviews {
         window.appearance = NSAppearance(named: .aqua)
         window.setContentSize(NSSize(width: 1000, height: 680))
         settle()
-        guard collection.selectionIndexPaths == selected else { throw PreviewError.galleryFailed }
+        guard collection.selectionIndexPaths == selected else { throw PreviewError.galleryFailed(line: #line) }
     }
 
     /// Ensures real checkbox actions retain multiple choices, intersect groups, and recover after deselection.

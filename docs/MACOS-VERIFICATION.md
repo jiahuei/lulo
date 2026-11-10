@@ -49,7 +49,7 @@ No interactive verification has yet been recorded in this repository.
 - [ ] Inspect numbered rating pills at each tile's upper-right, including portrait images. Check status, poster and metadata chips, one through five, and zero/missing ratings. Confirm the unchanged spoken tile rating and selectable metadata values.
 - [ ] Inspect the 300-point floating metadata panel, filename/capture/rating header, Dimensions, Date Time Captured, Date Time Modified and Attribution last. Confirm the image area shrinks and metadata never overlays the photo.
 - [ ] Inspect loading over bright images, initial empty, corrupt-image error and no-match states in both appearances. Trash remains a native confirmation sheet with Cancel as default and source bytes unchanged after cancellation.
-- [ ] Exercise keyboard focus and VoiceOver across all capsules, layout/zoom radio segments, breadcrumb, slider, tiles and View button. Check selection, disabled and hover colors, image inset/shadows, and gallery scrolling at the 120-point Rows minimum.
+- [ ] Exercise keyboard focus and VoiceOver across all capsules, layout/zoom radio segments, breadcrumb, slider, tiles and View button. Check selection, disabled and hover colors, the reduced image inset and shadow-free canvas, and gallery scrolling at the 120-point Rows minimum.
 
 ## PR 17 review regressions
 
