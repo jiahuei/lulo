@@ -130,9 +130,9 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
             let sourceSize = posterImage.image?.size ?? NSSize(width: 3, height: 2)
             let imageHeight = min(availableHeight, poster.bounds.width * sourceSize.height / max(1, sourceSize.width))
             posterImage.frame = NSRect(
-                x: 0, y: poster.bounds.height - imageHeight,
+                x: 0, y: 86 + (availableHeight - imageHeight) / 2,
                 width: poster.bounds.width, height: imageHeight)
-            let captionY = posterImage.frame.minY - 30
+            let captionY: CGFloat = 56
             let ratingSize = posterRating.intrinsicContentSize
             let ratingWidth = posterRating.isHidden ? 0 : ratingSize.width + 8
             caption.frame = NSRect(x: 0, y: captionY, width: max(1, poster.bounds.width - ratingWidth), height: 24)
