@@ -325,8 +325,6 @@ final class MessageView: NSView {
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(lessThanOrEqualToConstant: 520),
-            title.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            detail.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
     }
 
@@ -342,9 +340,14 @@ final class MessageView: NSView {
         updateHeadlineSize()
     }
 
-    /// The headline scales with the available width between 34 and 48 points.
+    /// The headline scales with the available width between 34 and 48 points. The block takes its text's width,
+    /// wrapping at 520 points (or the available width), so it can be centred while its lines stay left-aligned.
     func updateHeadlineSize() {
-        let size = min(48, max(34, (superview?.bounds.width ?? 0) * 0.04))
+        let available = superview?.bounds.width ?? 0
+        let width = max(200, min(520, available - 64))
+        title.preferredMaxLayoutWidth = width
+        detail.preferredMaxLayoutWidth = min(width, 420)
+        let size = min(48, max(34, available * 0.04))
         title.attributedStringValue = Theme.headline(title.stringValue, size: size, weight: .bold, tracking: -0.03)
     }
 
