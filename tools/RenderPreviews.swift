@@ -287,6 +287,12 @@ enum RenderPreviews {
         try verifyToolbarFits(window)
         // Below 1000 points the breadcrumb drops the parent folder.
         try verifyBreadcrumb(window, visible: [folder.lastPathComponent])
+        // The Rows heading stays on one line and truncates rather than wrapping.
+        guard
+            let heading = descendants(gallery).compactMap({ $0 as? NSTextField }).first(where: {
+                $0.stringValue == folder.lastPathComponent && !$0.isHiddenOrHasHiddenAncestor
+            }), heading.frame.height < 60, heading.frame.maxX <= gallery.bounds.maxX
+        else { throw PreviewError.galleryFailed(line: #line) }
         try capture(window, to: output.appendingPathComponent("gallery-compact-dark.png"))
         viewer.showPreview()
         settle()

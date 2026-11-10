@@ -41,14 +41,18 @@ enum Theme {
     @MainActor static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
     /// SF Pro Display is chosen automatically at these sizes; tracking is a fraction of the point size.
+    /// An attributed string replaces a label's line-break mode, so single-line headings pass theirs explicitly.
     static func headline(
-        _ text: String, size: CGFloat, weight: NSFont.Weight, tracking: CGFloat, color: NSColor = textPrimary
+        _ text: String, size: CGFloat, weight: NSFont.Weight, tracking: CGFloat, color: NSColor = textPrimary,
+        lineBreak: NSLineBreakMode = .byWordWrapping
     ) -> NSAttributedString {
-        NSAttributedString(
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = lineBreak
+        return NSAttributedString(
             string: text,
             attributes: [
                 .font: NSFont.systemFont(ofSize: size, weight: weight), .kern: size * tracking,
-                .foregroundColor: color,
+                .foregroundColor: color, .paragraphStyle: paragraph,
             ])
     }
 

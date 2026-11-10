@@ -65,6 +65,8 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         scroll.contentView.drawsBackground = false
 
         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.usesSingleLineMode = true
+        titleLabel.maximumNumberOfLines = 1
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleLabel.setContentHuggingPriority(.init(1), for: .horizontal)
         countLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
@@ -124,7 +126,8 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
             collection.reloadData()
         }
         let folderName = folderAccess.url.lastPathComponent
-        titleLabel.attributedStringValue = Theme.headline(folderName, size: 34, weight: .semibold, tracking: -0.035)
+        titleLabel.attributedStringValue = Theme.headline(
+            folderName, size: 34, weight: .semibold, tracking: -0.035, lineBreak: .byTruncatingTail)
         let shown = entries.count == totalCount ? "" : "\(entries.count) of "
         let images = "\(shown)\(totalCount) \(totalCount == 1 ? "image" : "images")"
         countLabel.stringValue = images
