@@ -43,6 +43,7 @@ final class ViewerController: NSWindowController {
         symbol: "sidebar.right", label: "Show metadata", type: .pushOnPushOff, target: nil, action: nil)
     private let trash = ToolbarButton(symbol: "trash", label: "Move to Trash", target: nil, action: nil)
     private var sliderWidth: NSLayoutConstraint?
+    private var capsules: [NSToolbarItem.Identifier: CapsuleView] = [:]
     private var sortButtons: [ToolbarButton] = []
     private var directionButtons: [ToolbarButton] = []
     private var ratingButtons: [NSButton] = []
@@ -766,6 +767,10 @@ final class ViewerController: NSWindowController {
         largerButton.isHidden = !galleryVisible || compact
         sliderWidth?.constant = compact ? 64 : 92
         gallery.isCompact = compact
+        // Measured unified-toolbar geometry: the first item starts 91 points from the left edge, the last ends
+        // 13 points from the right, and items are about 10 points apart.
+        let capsuleWidth = capsules.values.reduce(0) { $0 + $1.fittingSize.width + 10 }
+        breadcrumb.maximumWidth = max(40, width - 91 - 13 - capsuleWidth - 10)
     }
 
     private func updateRefreshIndicator() {
@@ -1026,6 +1031,7 @@ extension ViewerController: NSToolbarDelegate {
     ) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: identifier)
         item.visibilityPriority = .high
+        defer { capsules[identifier] = item.view as? CapsuleView }
         switch identifier {
         case .breadcrumb:
             item.label = "Location"

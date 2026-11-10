@@ -11,7 +11,11 @@ final class BreadcrumbView: NSStackView {
     private let folderLink = NSButton()
     private let fileSeparator = NSTextField(labelWithString: "/")
     private let file = NSTextField(labelWithString: "")
+    private var widthLimit: NSLayoutConstraint?
     var showGallery: (() -> Void)?
+    /// The toolbar moves items it cannot fit to an overflow menu, so the breadcrumb is capped to the space left
+    /// beside the capsules and its labels truncate instead.
+    var maximumWidth: CGFloat = 640 { didSet { widthLimit?.constant = maximumWidth } }
 
     init() {
         super.init(frame: .zero)
@@ -51,8 +55,9 @@ final class BreadcrumbView: NSStackView {
             addArrangedSubview(view)
         }
         setHuggingPriority(.defaultLow, for: .horizontal)
-        widthAnchor.constraint(lessThanOrEqualToConstant: 640).isActive = true
-        widthAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
+        let widthLimit = widthAnchor.constraint(lessThanOrEqualToConstant: maximumWidth)
+        widthLimit.isActive = true
+        self.widthLimit = widthLimit
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Location")

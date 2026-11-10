@@ -79,6 +79,7 @@ final class MetadataPanel: NSView {
         for group in details.groups where !group.fields.isEmpty {
             // Each group is one text block whose top border is the hairline separating it from the previous one.
             let block = NSTextBlock()
+            block.setValue(100, type: .percentageValueType, for: .width)
             block.setWidth(0.5, type: .absoluteValueType, for: .border, edge: .minY)
             block.setBorderColor(Theme.panelStroke, for: .minY)
             block.setWidth(12, type: .absoluteValueType, for: .margin, edge: .minY)

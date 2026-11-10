@@ -1106,11 +1106,13 @@ enum RenderPreviews {
             slider.accessibilityLabel() == "Row height", slider.doubleValue == 200
         else { throw PreviewError.sizeFailed(line: #line) }
         let selected = IndexPath(item: 2, section: 0)
-        let height = itemFrame(collection, 2).height
+        // A taller target fits fewer images per row, so the justified content grows.
+        let height = collection.collectionViewLayout?.collectionViewContentSize.height ?? 0
         viewer.largerThumbnails()
         collection.layoutSubtreeIfNeeded()
         guard Preferences(defaults: .standard).thumbnailSize(for: .rows) == 220, slider.doubleValue == 220,
-            itemFrame(collection, 2).height > height, collection.selectionIndexPaths == [selected],
+            (collection.collectionViewLayout?.collectionViewContentSize.height ?? 0) > height,
+            collection.selectionIndexPaths == [selected],
             collection.visibleRect.intersects(itemFrame(collection, 2))
         else { throw PreviewError.sizeFailed(line: #line) }
         for _ in 0..<20 { smaller.performClick(nil) }
