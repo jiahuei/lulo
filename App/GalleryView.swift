@@ -66,6 +66,8 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
 
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.usesSingleLineMode = true
+        // Baseline alignment with the count uses the field's font metrics, not the attributed string's.
+        titleLabel.font = .systemFont(ofSize: 34, weight: .semibold)
         titleLabel.maximumNumberOfLines = 1
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleLabel.setContentHuggingPriority(.init(1), for: .horizontal)
