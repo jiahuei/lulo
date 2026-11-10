@@ -39,18 +39,19 @@ enum RenderPreviews {
         }
         settle()
         try verifyDisplayToggle(viewer)
+        try verifyBreadcrumb(window, visible: [fixture.lastPathComponent])
         try capture(window, to: output.appendingPathComponent("image-light.png"))
         viewer.toggleSidebar()
         settle()
         try capture(window, to: output.appendingPathComponent("metadata-light.png"))
+        try verifyBlurredBackground(viewer, output: output, name: "metadata")
         window.appearance = NSAppearance(named: .darkAqua)
         window.setContentSize(NSSize(width: 720, height: 480))
         settle()
         try capture(window, to: output.appendingPathComponent("metadata-compact-dark.png"))
+        try verifyToolbarFits(window)
         try verifyLoadingOverlay(window, output: output)
-        if let browse = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
-            as? NSButton
-        {
+        if let browse = toolbarButton(window, "Sort & Filter") {
             browse.performClick(nil)
             settle()
             if let popover = app.windows.first(where: { $0 !== window && $0.isVisible && $0.contentView != nil }) {
@@ -91,37 +92,35 @@ enum RenderPreviews {
     private static func verifyDisplayToggle(_ viewer: ViewerController) throws {
         guard let window = viewer.window, let root = window.contentView,
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
-            let display = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Display" })?.view
-                as? NSSegmentedControl,
-            display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
+            let fit = toolbarButton(window, "Fit to window"), let actual = toolbarButton(window, "100%"),
+            fit.state == .on, actual.state == .off, canvas.zoom.mode == .fit, canvas.zoom.scale == nil,
+            fit.accessibilityRole() == .radioButton,
+            zoomText(root)?.hasPrefix("Fit, ") == true
         else { throw PreviewError.displayToggleFailed }
-        for (segment, expected) in [(1, ViewingMode.actualSize), (1, .actualSize), (0, .fit), (0, .fit)] {
+        for (button, expected) in [(actual, ViewingMode.actualSize), (actual, .actualSize), (fit, .fit), (fit, .fit)] {
             canvas.zoom.scroll(up: true, currentScale: 2)
-            display.selectedSegment = segment
-            display.sendAction(display.action, to: display.target)
+            button.performClick(nil)
             guard canvas.zoom.mode == expected,
-                canvas.zoom.scale == (expected == .fit ? nil : 1)
+                canvas.zoom.scale == (expected == .fit ? nil : 1), button.state == .on,
+                (button === fit ? actual : fit).state == .off,
+                zoomText(root) == (expected == .fit ? canvas.zoomDescription : "100%")
             else { throw PreviewError.displayToggleFailed }
             let cursor = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
             try doubleClick(canvas, at: cursor)
-            guard display.selectedSegment == (segment == 0 ? 1 : 0),
+            guard (button === fit ? actual : fit).state == .on, button.state == .off,
                 canvas.zoom.scale == (expected == .fit ? 1 : nil)
             else { throw PreviewError.displayToggleFailed }
             try doubleClick(canvas, at: cursor)
-            guard display.selectedSegment == segment else { throw PreviewError.displayToggleFailed }
+            guard button.state == .on else { throw PreviewError.displayToggleFailed }
             let restored = ViewerController()
             defer { restored.window?.close() }
-            guard
-                let restoredDisplay = restored.window?.toolbar?.items.first(where: {
-                    $0.itemIdentifier.rawValue == "Display"
-                })?.view as? NSSegmentedControl,
-                restoredDisplay.selectedSegment == 0
+            guard let restoredWindow = restored.window, toolbarButton(restoredWindow, "Fit to window")?.state == .on
             else { throw PreviewError.displayToggleFailed }
         }
         canvas.resetZoom(to: .actualSize)
         window.close()
         viewer.showWindow(nil)
-        guard canvas.zoom.mode == .fit, canvas.zoom.scale == nil, display.selectedSegment == 0 else {
+        guard canvas.zoom.mode == .fit, canvas.zoom.scale == nil, fit.state == .on else {
             throw PreviewError.displayToggleFailed
         }
     }
@@ -154,12 +153,12 @@ enum RenderPreviews {
             let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
-            let display = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Display" })?.view
-                as? NSSegmentedControl,
-            let trash = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Trash" })?.view as? NSButton
+            let fit = toolbarButton(window, "Fit to window"), let trash = toolbarButton(window, "Move to Trash"),
+            let poster = descendants(gallery).compactMap({ $0 as? PosterView }).first
         else { throw PreviewError.galleryFailed }
         defer { window.close() }
         window.setContentSize(NSSize(width: 1000, height: 680))
+        window.appearance = NSAppearance(named: .aqua)
         func waitUntil(_ ready: () -> Bool) throws {
             let deadline = Date().addingTimeInterval(15)
             while !ready() && Date() < deadline {
@@ -169,7 +168,7 @@ enum RenderPreviews {
             guard ready() else { throw PreviewError.galleryFailed }
         }
         func key(_ code: UInt16) throws {
-            let characters = code == 124 ? "\u{F703}" : "\r"
+            let characters = [123: "\u{F702}", 124: "\u{F703}", 125: "\u{F701}", 126: "\u{F700}"][code] ?? "\r"
             guard
                 let event = NSEvent.keyEvent(
                     with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
@@ -209,59 +208,88 @@ enum RenderPreviews {
         }
         guard !gallery.isHidden, canvas.isHidden, collection.visibleItems().count < 81,
             collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)],
-            !viewer.canTrashCurrentImage, !trash.isEnabled, !display.isEnabled,
-            display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
+            !viewer.canTrashCurrentImage, !trash.isEnabled, fit.isHiddenOrHasHiddenAncestor,
+            canvas.zoom.mode == .fit, canvas.zoom.scale == nil, viewer.galleryLayout == .rows
         else { throw PreviewError.galleryFailed }
+        try verifyBreadcrumb(
+            window, visible: [folder.deletingLastPathComponent().lastPathComponent, folder.lastPathComponent])
         viewer.trashCurrentImage()
         guard window.attachedSheet == nil else { throw PreviewError.galleryFailed }
         try waitUntil {
-            descendants(gallery).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Preview unavailable" }
+            descendants(gallery).compactMap { $0 as? NSTextField }.contains {
+                $0.stringValue == "Preview unavailable" && !$0.isHiddenOrHasHiddenAncestor
+            }
         }
         try waitUntil { thumbnailsReady() }
-        // Overlay geometry must locate the actual pixels, including the rotated portrait fixture.
+        // Rows tiles take each image's own aspect ratio from discovery, including the rotated portrait fixture.
         for index in 1...6 {
-            guard
-                let preview = collection.item(at: IndexPath(item: index, section: 0))?.imageView
-                    as? GalleryThumbnailView, let image = preview.image
-            else { throw PreviewError.galleryRatingPlacementFailed }
-            let rect = preview.displayedImageRect
-            guard abs(rect.width / rect.height - image.size.width / image.size.height) < 0.02,
-                abs(rect.midX - preview.bounds.midX) < 0.01,
-                abs(rect.midY - preview.bounds.midY) < 0.01,
-                index != 2 || rect.height > rect.width
+            guard let image = collection.item(at: IndexPath(item: index, section: 0))?.imageView?.image else {
+                throw PreviewError.galleryRatingPlacementFailed
+            }
+            let frame = itemFrame(collection, index)
+            guard abs(frame.width / frame.height - image.size.width / image.size.height) < 0.02,
+                index != 2 || frame.height > frame.width
             else { throw PreviewError.galleryRatingPlacementFailed }
         }
-        window.appearance = NSAppearance(named: .aqua)
         settle()
         try capture(window, to: output.appendingPathComponent("gallery-light.png"))
         try key(124)
         guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
             throw PreviewError.galleryFailed
         }
+        // Down and up move between visual rows to the nearest horizontal centre.
+        let start = itemFrame(collection, 2)
+        try key(125)
+        guard let below = collection.selectionIndexPaths.first?.item, itemFrame(collection, below).minY > start.maxY
+        else { throw PreviewError.galleryFailed }
+        try key(126)
+        guard let above = collection.selectionIndexPaths.first?.item,
+            itemFrame(collection, above).minY == start.minY
+        else { throw PreviewError.galleryFailed }
+        let second = IndexPath(item: 2, section: 0)
+        collection.selectItems(at: [second], scrollPosition: [])
+        collection.delegate?.collectionView?(collection, didSelectItemsAt: [second])
+        guard collection.selectionIndexPaths == [second] else { throw PreviewError.galleryFailed }
+        try verifyThumbnailSizes(viewer, collection: collection)
+        try verifyPreviewLayout(viewer, collection: collection, poster: poster, output: output)
         try key(36)
         try waitUntil { gallery.isHidden && viewer.canTrashCurrentImage && window.title == "photo2.png" }
-        guard display.isEnabled, display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil else {
-            throw PreviewError.displayToggleFailed
-        }
-        viewer.toggleGallery()
-        guard collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
+        guard !fit.isHiddenOrHasHiddenAncestor, fit.state == .on, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
+        else { throw PreviewError.displayToggleFailed }
+        try verifyBreadcrumb(
+            window,
+            visible: [folder.deletingLastPathComponent().lastPathComponent, folder.lastPathComponent, "photo2.png"])
+        // The folder segment is a link with the same effect as the Gallery button.
+        guard
+            let folderLink = descendants(window.toolbar!.items.compactMap(\.view)).compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == folder.lastPathComponent && !$0.isHidden })
+        else { throw PreviewError.galleryFailed }
+        folderLink.performClick(nil)
+        guard !gallery.isHidden, collection.selectionIndexPaths == [IndexPath(item: 2, section: 0)] else {
             throw PreviewError.galleryFailed
         }
         window.appearance = NSAppearance(named: .darkAqua)
         window.setContentSize(NSSize(width: 720, height: 480))
         settle()
         try waitUntil { thumbnailsReady() }
+        try verifyToolbarFits(window)
+        // Below 1000 points the breadcrumb drops the parent folder.
+        try verifyBreadcrumb(window, visible: [folder.lastPathComponent])
         try capture(window, to: output.appendingPathComponent("gallery-compact-dark.png"))
+        viewer.showPreview()
+        settle()
+        try waitUntil { thumbnailsReady() && poster.preview.image != nil }
+        try verifyToolbarFits(window)
+        try capture(window, to: output.appendingPathComponent("gallery-preview-compact-dark.png"))
+        try verifyBlurredBackground(viewer, output: output, name: "gallery-preview")
+        viewer.showRows()
         for index in [80, 1, 70, 2] {
             collection.scrollToItems(at: [IndexPath(item: index, section: 0)], scrollPosition: .centeredVertically)
             settle()
             try waitUntil { thumbnailsReady() }
         }
         // The existing filter controls must affect both views, including recovery from no matches.
-        guard
-            let browse = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
-                as? NSButton
-        else { throw PreviewError.galleryFailed }
+        guard let browse = toolbarButton(window, "Sort & Filter") else { throw PreviewError.galleryFailed }
         browse.performClick(nil)
         settle()
         guard
@@ -297,13 +325,19 @@ enum RenderPreviews {
         guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.galleryFailed }
         try waitUntil { thumbnailsReady() }
         png.performClick(nil)
+        guard badgeCount(browse) == 3, browse.accessibilityLabel() == "Sort & Filter, 3 active filters" else {
+            throw PreviewError.galleryFailed
+        }
+        try capture(window, to: output.appendingPathComponent("gallery-filtered-compact-dark.png"))
         browse.performClick(nil)
         guard collection.numberOfItems(inSection: 0) == 0,
             let clear = descendants(gallery).compactMap({ $0 as? NSButton }).first(where: {
-                $0.title == "Clear Filters"
+                $0.title == "Clear Filters" && !$0.isHiddenOrHasHiddenAncestor
             })
         else { throw PreviewError.galleryFailed }
+        try capture(window, to: output.appendingPathComponent("gallery-no-match-compact-dark.png"))
         clear.performClick(nil)
+        guard badgeCount(browse) == 0 else { throw PreviewError.galleryFailed }
         try waitUntil { collection.numberOfItems(inSection: 0) == 81 }
         // A new explicit open must close the gallery and discard its old cells and thumbnail requests.
         viewer.open(fixture)
@@ -330,7 +364,7 @@ enum RenderPreviews {
         let viewer = ViewerController(moveToTrash: { try await operation.move($0, access: $1) })
         guard let window = viewer.window, let content = window.contentView,
             let canvas = descendants(content).compactMap({ $0 as? ImageCanvas }).first,
-            let trash = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Trash" })?.view as? NSButton
+            let trash = toolbarButton(window, "Move to Trash")
         else { throw PreviewError.trashFailed }
         defer { window.close() }
         func waitUntil(_ ready: () -> Bool) throws {
@@ -396,7 +430,7 @@ enum RenderPreviews {
         try confirmTrash()
         try operation.succeed()
         try waitUntil {
-            descendants(content).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "No images remaining" }
+            descendants(content).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "No images remaining." }
         }
         guard !viewer.canTrashCurrentImage, !trash.isEnabled, canvas.image == nil else {
             throw PreviewError.trashFailed
@@ -413,8 +447,7 @@ enum RenderPreviews {
             let png = buttons.first(where: { $0.title == "PNG" }),
             let clear = buttons.first(where: { $0.title == "Clear Filters" }),
             let canvas = descendants(viewer.contentView!).compactMap({ $0 as? ImageCanvas }).first,
-            let browse = viewer.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
-                as? NSButton
+            let browse = toolbarButton(viewer, "Sort & Filter")
         else { throw PreviewError.missingFilterControls }
         let choices = buttons.filter { $0.action == fiveStars.action }
         guard choices.count == 9, choices.allSatisfy({ $0.state == .off }) else {
@@ -430,8 +463,8 @@ enum RenderPreviews {
         png.performClick(nil)
         jpeg.performClick(nil)
         guard unrated.state == .on, fiveStars.state == .on, png.state == .on, jpeg.state == .on,
-            canvas.image != nil, browse.accessibilityLabel() == "Sort & Filter, 2 active filters",
-            browse.toolTip == browse.accessibilityLabel(),
+            canvas.image != nil, browse.accessibilityLabel() == "Sort & Filter, 4 active filters",
+            browse.toolTip == browse.accessibilityLabel(), badgeCount(browse) == 4,
             descendants(viewer.contentView!).compactMap({ $0 as? NSTextField }).contains(where: {
                 $0.stringValue == "Filtered by Unrated / 0 Stars, 5 Stars · JPEG, PNG"
             })
@@ -442,17 +475,25 @@ enum RenderPreviews {
         jpeg.performClick(nil)
         let deadline = Date().addingTimeInterval(15)
         while canvas.image == nil && Date() < deadline { settle() }
-        guard canvas.image != nil, browse.accessibilityLabel() == "Sort & Filter, 1 active filters" else {
+        // The count is ticked boxes, not filter groups: two ratings remain ticked.
+        guard canvas.image != nil, browse.accessibilityLabel() == "Sort & Filter, 2 active filters",
+            badgeCount(browse) == 2
+        else {
             throw PreviewError.filterDidNotClear
         }
         clear.performClick(nil)
-        guard choices.allSatisfy({ $0.state == .off }), browse.accessibilityLabel() == "Sort & Filter" else {
+        guard choices.allSatisfy({ $0.state == .off }), browse.accessibilityLabel() == "Sort & Filter",
+            badgeCount(browse) == 0
+        else {
             throw PreviewError.filterDidNotClear
         }
         unrated.performClick(nil)
         fiveStars.performClick(nil)
         unrated.performClick(nil)
-        guard canvas.image == nil, fiveStars.state == .on else { throw PreviewError.filterDidNotApply }
+        guard canvas.image == nil, fiveStars.state == .on,
+            browse.accessibilityLabel() == "Sort & Filter, 1 active filter",
+            badgeCount(browse) == 1
+        else { throw PreviewError.filterDidNotApply }
     }
 
     /// Ensures the loading card stays compact and legible over retained pixels in both appearances.
@@ -467,11 +508,13 @@ enum RenderPreviews {
             canvas.showLoading(filename: filename)
             settle()
             root.layoutSubtreeIfNeeded()
+            let box = canvas.loadingBox
             guard canvas.image === image, canvas.isLoading,
-                let box = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first,
-                !box.isHidden, box.frame.width <= 360, box.frame.height <= 80,
+                !box.isHidden, box.frame.width <= 320, box.frame.height <= 80,
                 canvas.bounds.contains(box.frame),
-                descendants(box).compactMap({ $0 as? NSTextField }).contains(where: { $0.stringValue == filename }),
+                descendants(box).compactMap({ $0 as? NSTextField }).contains(where: {
+                    $0.stringValue == "Loading \(filename)" && $0.toolTip == filename
+                }),
                 descendants(box).contains(where: { $0 is NSProgressIndicator && !$0.isHidden })
             else { throw PreviewError.loadingOverlayFailed(line: #line) }
             try capture(window, to: output.appendingPathComponent("loading-\(appearance.rawValue).png"))
@@ -533,7 +576,7 @@ enum RenderPreviews {
             // Keep the previous pixels while checking the cache; a miss may show the overlay after yielding.
             guard canvas.image === retainedImage, canvas.zoom.scale == retainedScale, canvas.isLoading,
                 metadata.string.isEmpty,
-                descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).allSatisfy(\.isHidden)
+                canvas.loadingBox.isHidden
             else { throw PreviewError.loadingOverlayFailed(line: #line) }
         }
         var index = 0
@@ -618,7 +661,7 @@ enum RenderPreviews {
         try waitUntil("recoverable error") { !canvas.isLoading && canvas.image == nil }
         guard
             descendants(canvas).compactMap({ $0 as? NSTextField }).contains(where: {
-                $0.stringValue == "Cannot display this image" && !$0.isHiddenOrHasHiddenAncestor
+                $0.stringValue == "Can’t open this file." && !$0.isHiddenOrHasHiddenAncestor
             })
         else { throw PreviewError.loadingOverlayFailed(line: #line) }
         try arrow(-1)
@@ -642,9 +685,9 @@ enum RenderPreviews {
         let store = ImageStore()
         let viewer = ViewerController(imageStore: store, automaticallyRefresh: false)
         guard let window = viewer.window, let root = window.contentView,
-            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
-            let overlay = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first
         else { throw PreviewError.navigationFailed }
+        let overlay = canvas.loadingBox
         defer { window.close() }
         func waitWithoutOverlay(_ ready: () -> Bool) throws {
             let deadline = Date().addingTimeInterval(15)
@@ -774,8 +817,7 @@ enum RenderPreviews {
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
             let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
-            let refresh = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Refresh" })?.view
-                as? NSButton
+            let refresh = toolbarButton(window, "Refresh (⌘R)")
         else { throw PreviewError.refreshFailed(line: #line) }
         defer { window.close() }
         func waitUntil(line: Int = #line, _ ready: () -> Bool) throws {
@@ -791,8 +833,10 @@ enum RenderPreviews {
         }
         viewer.open(first)
         try waitUntil { canvas.image != nil && !canvas.isLoading && window.attachedSheet == nil }
-        guard refresh.isEnabled, hasStatus("1 of 1"),
-            let rating = descendants(root).compactMap({ $0 as? NSTextField }).first(where: { $0.stringValue == "★" })
+        guard refresh.isEnabled, hasStatus("1 of 1"), statusRating(root) == 1,
+            let rating = descendants(root).compactMap({ $0 as? RatingChip }).first(where: {
+                $0.accessibilityIdentifier() == "status-rating"
+            })
         else { throw PreviewError.refreshFailed(line: #line) }
         viewer.toggleSidebar()
         for stars in [2, 3, 4, 5, 0, nil, 1] as [Int?] {
@@ -802,7 +846,7 @@ enum RenderPreviews {
             guard rating.isHidden else { throw PreviewError.refreshFailed(line: #line) }
             try waitUntil { canvas.image != nil && canvas.image !== previous && !canvas.isLoading }
             let count = stars ?? 0
-            guard rating.stringValue == String(repeating: "★", count: count), rating.isHidden == (count == 0),
+            guard statusRating(root) == (count == 0 ? nil : count), rating.isHidden == (count == 0),
                 hasStatus("1 of 1"), window.title == "a.png"
             else { throw PreviewError.refreshFailed(line: #line) }
             if count > 0 {
@@ -812,10 +856,7 @@ enum RenderPreviews {
             }
         }
         // A filtered-out single file must reappear when its refreshed rating now matches.
-        guard
-            let browse = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "Browse" })?.view
-                as? NSButton
-        else { throw PreviewError.refreshFailed(line: #line) }
+        guard let browse = toolbarButton(window, "Sort & Filter") else { throw PreviewError.refreshFailed(line: #line) }
         browse.performClick(nil)
         settle()
         guard
@@ -833,14 +874,14 @@ enum RenderPreviews {
         try makeFixture(at: first, rating: 5)
         viewer.refreshImages()
         try waitUntil { canvas.image != nil && !canvas.isLoading }
-        guard fiveStars.state == .on, rating.stringValue == "★★★★★" else {
+        guard fiveStars.state == .on, statusRating(root) == 5 else {
             throw PreviewError.refreshFailed(line: #line)
         }
         clearFilters.performClick(nil)
         browse.performClick(nil)
         try makeFixture(at: first, rating: 1)
         viewer.refreshImages()
-        try waitUntil { !canvas.isLoading && rating.stringValue == "★" }
+        try waitUntil { !canvas.isLoading && statusRating(root) == 1 }
         // Refresh must bypass the cache even when no file attributes changed.
         let previous = canvas.image
         refresh.performClick(nil)
@@ -881,14 +922,14 @@ enum RenderPreviews {
         try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
         viewer.toggleGallery()
         try waitUntil { !canvas.isLoading && canvas.image != nil && window.title == "c.png" }
-        guard rating.stringValue == "★★★★★", !rating.isHidden else { throw PreviewError.refreshFailed(line: #line) }
+        guard statusRating(root) == 5 else { throw PreviewError.refreshFailed(line: #line) }
         try Data("corrupt".utf8).write(to: third)
         refresh.performClick(nil)
         try waitUntil { !canvas.isLoading && canvas.image == nil }
         guard rating.isHidden else { throw PreviewError.refreshFailed(line: #line) }
         try FileManager.default.removeItem(at: third)
         refresh.performClick(nil)
-        try waitUntil { hasStatus("0 images") && hasStatus("No images remaining") }
+        try waitUntil { hasStatus("0 images") && hasStatus("No images remaining.") }
         print("Verified manual refresh, folder additions/deletions, thumbnail replacement, and viewer ratings.")
     }
 
@@ -924,12 +965,12 @@ enum RenderPreviews {
         RunLoop.current.run(until: Date().addingTimeInterval(1.2))
         try makeFixture(at: second, rating: 2)
         try makeFixture(at: first, rating: 5, orientation: 6)
-        try waitUntil { hasLabel("★★★★★") && canvas.image?.height == 1200 && !canvas.isLoading }
+        try waitUntil { statusRating(root) == 5 && canvas.image?.height == 1200 && !canvas.isLoading }
         guard hasLabel("1 of 1") else { throw PreviewError.refreshFailed(line: #line) }
         try FileManager.default.removeItem(at: first)
         try waitUntil { !canvas.isLoading && canvas.image == nil }
         try makeFixture(at: first, rating: 3)
-        try waitUntil { canvas.image != nil && !canvas.isLoading && hasLabel("★★★") }
+        try waitUntil { canvas.image != nil && !canvas.isLoading && statusRating(root) == 3 }
         viewer.useAuthorizedFolder(FileAccess(url: folder))
         try waitUntil { hasLabel("1 of 2") }
         viewer.toggleGallery()
@@ -943,7 +984,7 @@ enum RenderPreviews {
         try FileManager.default.removeItem(at: first)
         try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
         viewer.toggleGallery()
-        try waitUntil { window.title == "c.png" && !canvas.isLoading && canvas.image != nil && hasLabel("★★★★") }
+        try waitUntil { window.title == "c.png" && !canvas.isLoading && canvas.image != nil && statusRating(root) == 4 }
         // A new session must stop observing the previous folder and reject already queued callbacks.
         let otherFolder = folder.appendingPathComponent("other", isDirectory: true)
         try FileManager.default.createDirectory(at: otherFolder, withIntermediateDirectories: true)
@@ -957,6 +998,147 @@ enum RenderPreviews {
             throw PreviewError.refreshFailed(line: #line)
         }
         print("Verified automatic replacement, deletion/recreation, folder discovery, and session isolation.")
+    }
+
+    /// Finds a toolbar capsule button by its accessibility label, or by the label's prefix for counted labels.
+    private static func toolbarButton(_ window: NSWindow, _ label: String) -> ToolbarButton? {
+        descendants(window.toolbar?.items.compactMap(\.view) ?? []).compactMap { $0 as? ToolbarButton }
+            .first { $0.accessibilityLabel()?.hasPrefix(label) == true }
+    }
+
+    private static func descendants(_ views: [NSView]) -> [NSView] { views.flatMap { descendants($0) } }
+
+    private static func itemFrame(_ collection: NSCollectionView, _ index: Int) -> NSRect {
+        collection.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame ?? .zero
+    }
+
+    private static func zoomText(_ root: NSView) -> String? {
+        descendants(root).compactMap { $0 as? NSTextField }.first {
+            !$0.isHiddenOrHasHiddenAncestor && ($0.stringValue.hasPrefix("Fit, ") || $0.stringValue.hasSuffix("%"))
+        }?.stringValue
+    }
+
+    /// The visible badge number, or 0 when the badge is hidden.
+    private static func badgeCount(_ browse: NSView) -> Int {
+        descendants(browse).compactMap { $0 as? BadgeView }.first.map { $0.isHidden ? 0 : $0.count } ?? -1
+    }
+
+    /// The status line's rating chip value, or nil while it is hidden.
+    private static func statusRating(_ root: NSView) -> Int? {
+        let chip = descendants(root).compactMap { $0 as? RatingChip }.first {
+            $0.accessibilityIdentifier() == "status-rating"
+        }
+        guard let chip, !chip.isHidden else { return nil }
+        return chip.rating
+    }
+
+    /// Ensures the breadcrumb shows exactly these names (parent, folder, file) in order, with the full path available.
+    private static func verifyBreadcrumb(_ window: NSWindow, visible names: [String]) throws {
+        guard
+            let crumb = descendants(window.toolbar?.items.compactMap(\.view) ?? []).compactMap({ $0 as? BreadcrumbView }
+            ).first
+        else { throw PreviewError.breadcrumbFailed(line: #line) }
+        crumb.layoutSubtreeIfNeeded()
+        let shown = crumb.arrangedSubviews.filter { !$0.isHidden }.compactMap { view -> String? in
+            if let button = view as? NSButton { return button.title }
+            guard let label = view as? NSTextField, label.stringValue != "/" else { return nil }
+            return label.stringValue
+        }
+        guard shown == names, crumb.toolTip?.hasPrefix("/") == true,
+            crumb.accessibilityValue() as? String == crumb.toolTip
+        else {
+            FileHandle.standardError.write(Data("Breadcrumb showed \(shown), expected \(names)\n".utf8))
+            throw PreviewError.breadcrumbFailed(line: #line)
+        }
+    }
+
+    /// Ensures every capsule (and the breadcrumb) stays in the toolbar instead of moving to an overflow menu.
+    private static func verifyToolbarFits(_ window: NSWindow) throws {
+        window.contentView?.superview?.layoutSubtreeIfNeeded()
+        guard let items = window.toolbar?.items, items.count >= 5,
+            items.allSatisfy({ $0.view == nil || $0.view?.window === window })
+        else { throw PreviewError.toolbarOverflow(width: window.frame.width) }
+    }
+
+    /// Ensures Blurred Background toggles from the toolbar, persists, shows the selected image, and turns off again.
+    private static func verifyBlurredBackground(_ viewer: ViewerController, output: URL, name: String) throws {
+        guard let window = viewer.window, let backdrop = window.contentView as? BackdropView,
+            let blur = toolbarButton(window, "Blurred Background"), !backdrop.isBlurred, blur.state == .off
+        else { throw PreviewError.backgroundFailed(line: #line) }
+        blur.performClick(nil)
+        let deadline = Date().addingTimeInterval(15)
+        while backdrop.image == nil && Date() < deadline { settle() }
+        guard backdrop.isBlurred, blur.state == .on, backdrop.image != nil, viewer.blurredBackground,
+            Preferences(defaults: .standard).blurredBackground
+        else { throw PreviewError.backgroundFailed(line: #line) }
+        settle()
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            settle()
+            try capture(window, to: output.appendingPathComponent("\(name)-blur-\(appearance.rawValue).png"))
+        }
+        viewer.toggleBlurredBackground()
+        guard !backdrop.isBlurred, blur.state == .off, !Preferences(defaults: .standard).blurredBackground else {
+            throw PreviewError.backgroundFailed(line: #line)
+        }
+    }
+
+    /// Ensures the size controls snap, persist per layout, keep the selection visible, and respect their limits.
+    private static func verifyThumbnailSizes(_ viewer: ViewerController, collection: NSCollectionView) throws {
+        guard let window = viewer.window, let larger = toolbarButton(window, "Larger thumbnails"),
+            let smaller = toolbarButton(window, "Smaller thumbnails"),
+            let slider = descendants(window.toolbar?.items.compactMap(\.view) ?? []).compactMap({ $0 as? NSSlider })
+                .first,
+            slider.accessibilityLabel() == "Row height", slider.doubleValue == 200
+        else { throw PreviewError.sizeFailed(line: #line) }
+        let selected = IndexPath(item: 2, section: 0)
+        let height = itemFrame(collection, 2).height
+        viewer.largerThumbnails()
+        collection.layoutSubtreeIfNeeded()
+        guard Preferences(defaults: .standard).thumbnailSize(for: .rows) == 220, slider.doubleValue == 220,
+            itemFrame(collection, 2).height > height, collection.selectionIndexPaths == [selected],
+            collection.visibleRect.intersects(itemFrame(collection, 2))
+        else { throw PreviewError.sizeFailed(line: #line) }
+        for _ in 0..<20 { smaller.performClick(nil) }
+        guard Preferences(defaults: .standard).thumbnailSize(for: .rows) == 120, !smaller.isEnabled, larger.isEnabled
+        else { throw PreviewError.sizeFailed(line: #line) }
+        slider.doubleValue = 203
+        slider.sendAction(slider.action, to: slider.target)
+        guard Preferences(defaults: .standard).thumbnailSize(for: .rows) == 200, slider.doubleValue == 200 else {
+            throw PreviewError.sizeFailed(line: #line)
+        }
+    }
+
+    /// Ensures Preview shows square tiles, a poster of the selection with its caption, and keeps its own size.
+    private static func verifyPreviewLayout(
+        _ viewer: ViewerController, collection: NSCollectionView, poster: PosterView, output: URL
+    ) throws {
+        guard let window = viewer.window, let rows = toolbarButton(window, "Rows"),
+            let preview = toolbarButton(window, "Preview"), rows.state == .on,
+            preview.accessibilityRole() == .radioButton
+        else { throw PreviewError.previewFailed(line: #line) }
+        let selected = collection.selectionIndexPaths
+        preview.performClick(nil)
+        let deadline = Date().addingTimeInterval(15)
+        while (poster.preview.image == nil || poster.caption.stringValue.isEmpty) && Date() < deadline { settle() }
+        let tile = itemFrame(collection, 2)
+        guard viewer.galleryLayout == .preview, preview.state == .on, rows.state == .off, !poster.isHidden,
+            Preferences(defaults: .standard).galleryLayout == .preview, collection.selectionIndexPaths == selected,
+            abs(tile.width - tile.height) < 0.01, tile.width - 8 >= 128,
+            poster.entry?.url.lastPathComponent == "photo2.png", poster.preview.image != nil,
+            poster.caption.stringValue.contains("f/2.8")
+        else { throw PreviewError.previewFailed(line: #line) }
+        viewer.largerThumbnails()
+        guard Preferences(defaults: .standard).thumbnailSize(for: .preview) == 140,
+            Preferences(defaults: .standard).thumbnailSize(for: .rows) == 200
+        else { throw PreviewError.previewFailed(line: #line) }
+        viewer.smallerThumbnails()
+        settle()
+        try capture(window, to: output.appendingPathComponent("gallery-preview-light.png"))
+        viewer.showRows()
+        guard viewer.galleryLayout == .rows, poster.isHidden, collection.selectionIndexPaths == selected else {
+            throw PreviewError.previewFailed(line: #line)
+        }
     }
 
     private static func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
@@ -1032,6 +1214,11 @@ enum RenderPreviews {
         case refreshFailed(line: Int)
         case missingFilterControls, filterDidNotApply, filterDidNotClear, navigationFailed
         case loadingOverlayFailed(line: Int)
+        case breadcrumbFailed(line: Int)
+        case backgroundFailed(line: Int)
+        case sizeFailed(line: Int)
+        case previewFailed(line: Int)
+        case toolbarOverflow(width: CGFloat)
     }
 }
 

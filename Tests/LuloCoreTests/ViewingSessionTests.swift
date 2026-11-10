@@ -3,6 +3,10 @@ import Testing
 
 @testable import LuloCore
 
+#if canImport(CoreGraphics)
+    import CoreGraphics
+#endif
+
 private func entry(_ name: String, rating: Int? = nil, captured: Double? = nil, created: Double? = nil) -> ImageEntry {
     let url = URL(fileURLWithPath: "/synthetic/\(name)")
     return ImageEntry(
@@ -302,4 +306,58 @@ func removalRetainsAnotherSelection() {
     session.removeEntry(at: first.url)
     #expect(session.entries == [second])
     #expect(session.selectedURL == second.url)
+}
+
+/// Ensures the gallery and background preferences default to plain Rows at documented sizes and persist per layout.
+@Test
+func galleryPreferencesPersist() throws {
+    let name = "LuloTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: name))
+    defer { defaults.removePersistentDomain(forName: name) }
+    let initial = Preferences(defaults: defaults)
+    #expect(!initial.blurredBackground)
+    #expect(initial.galleryLayout == .rows)
+    #expect(initial.thumbnailSize(for: .rows) == 200)
+    #expect(initial.thumbnailSize(for: .preview) == 128)
+    var saved = Preferences(sort: .fileType)
+    saved.blurredBackground = true
+    saved.galleryLayout = .preview
+    saved.setThumbnailSize(145, for: .preview)
+    saved.setThumbnailSize(400, for: .rows)
+    #expect(saved.thumbnailSize(for: .preview) == 146)
+    #expect(saved.thumbnailSize(for: .rows) == 300)
+    saved.save(to: defaults)
+    #expect(Preferences(defaults: defaults) == saved)
+    // Changing one layout's size leaves the other layout's saved size alone.
+    var updated = Preferences(defaults: defaults)
+    updated.setThumbnailSize(120, for: .rows)
+    #expect(updated.thumbnailSize(for: .preview) == 146)
+    defaults.set("grid", forKey: "galleryLayout")
+    defaults.set(13.0, forKey: "galleryTileSize")
+    #expect(Preferences(defaults: defaults).galleryLayout == .rows)
+    #expect(Preferences(defaults: defaults).thumbnailSize(for: .preview) == 88)
+}
+
+/// Ensures the Sort & Filter badge counts ticked boxes across both groups, never sort settings, and clears to zero.
+@Test
+func filterBadgeCountsTickedBoxes() {
+    #expect(ImageFilter().activeCount == 0)
+    #expect(ImageFilter(ratings: [1, 2]).activeCount == 2)
+    #expect(ImageFilter(ratings: [1, 2], formats: [.jpeg]).activeCount == 3)
+    #expect(ImageFilter(ratings: Set(0...5), formats: Set(ImageFormat.allCases)).activeCount == 9)
+    var session = ViewingSession(preferences: Preferences(sort: .rating, ascending: false))
+    session.filter = ImageFilter(formats: [.png, .heif])
+    #expect(session.filter.activeCount == 2)
+    session.filter = ImageFilter()
+    #expect(session.filter.activeCount == 0)
+}
+
+/// Ensures entries expose stored aspect ratios and fall back to 3:2 when the size is unknown or degenerate.
+@Test
+func entryAspectRatio() {
+    let url = URL(fileURLWithPath: "/synthetic/a.jpg")
+    #expect(
+        ImageEntry(url: url, format: .jpeg, pixelSize: CGSize(width: 800, height: 1200)).aspectRatio == 800.0 / 1200)
+    #expect(ImageEntry(url: url, format: .jpeg).aspectRatio == 1.5)
+    #expect(ImageEntry(url: url, format: .jpeg, pixelSize: CGSize(width: 10, height: 0)).aspectRatio == 1.5)
 }

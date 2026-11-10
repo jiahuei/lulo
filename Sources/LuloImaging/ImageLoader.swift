@@ -18,6 +18,11 @@ public struct ImageDetails: Sendable {
     public let width: Int
     public let height: Int
     public let groups: [MetadataGroup]
+    /// Embedded Date Time Original as written by the camera, decoded in UTC so formatting in UTC shows that
+    /// wall-clock time regardless of the viewer's time zone.
+    public let captureWallClock: Date?
+    /// Shutter, aperture, and ISO for captions, for example "1/400 s at f/14, ISO 640".
+    public let exposureSummary: String?
 }
 
 public enum ImageLoadError: LocalizedError {
@@ -115,7 +120,10 @@ public enum ImageLoader {
         }
         let createdAt = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate
         let capturedAt = captureDate(exif["DateTimeOriginal"] as? String, offset: exif["OffsetTimeOriginal"] as? String)
-        let entry = ImageEntry(url: url, format: format, capturedAt: capturedAt, createdAt: createdAt, rating: rating)
+        let entry = ImageEntry(
+            url: url, format: format, capturedAt: capturedAt, createdAt: createdAt, rating: rating,
+            pixelSize: orientedWidth > 0 && orientedHeight > 0
+                ? CGSize(width: orientedWidth, height: orientedHeight) : nil)
         let dimensions = "\(orientedWidth) × \(orientedHeight)"
         func text(_ value: Any?) -> String? {
             guard let value else { return nil }
@@ -134,6 +142,10 @@ public enum ImageLoader {
         }
         let aperture = text(exif["FNumber"]).map { "f/\($0)" }
         let exposure = [shutter, aperture].compactMap { $0 }.joined(separator: ", ")
+        let iso = (exif["ISOSpeedRatings"] as? [NSNumber])?.map(\.stringValue).joined(separator: ", ")
+        let summary = [
+            [shutter, aperture].compactMap { $0 }.joined(separator: " at "), iso.map { "ISO \($0)" } ?? "",
+        ].filter { !$0.isEmpty }.joined(separator: ", ")
         let coordinates: String?
         if let latitude = text(gps["Latitude"]), let longitude = text(gps["Longitude"]) {
             coordinates = "\(latitude)\(text(gps["LatitudeRef"]) ?? ""), \(longitude)\(text(gps["LongitudeRef"]) ?? "")"
@@ -147,14 +159,15 @@ public enum ImageLoader {
             group(
                 "File",
                 [
-                    ("File Name", url.lastPathComponent), ("File Path", url.path),
-                    ("File Dimensions", dimensions), ("Current Dimensions", dimensions),
+                    ("File Name", url.lastPathComponent), ("File Path", url.path), ("Dimensions", dimensions),
                 ]),
             group(
                 "Timestamps",
                 [
-                    ("Date Time Original", text(exif["DateTimeOriginal"])),
-                    ("Date Time Digitized", text(exif["DateTimeDigitized"])), ("Date Time", text(tiff["DateTime"])),
+                    ("Date Time Captured", text(exif["DateTimeOriginal"])),
+                    ("Date Time Digitized", text(exif["DateTimeDigitized"])),
+                    // TIFF DateTime records when software last wrote the file, not Finder's modification date.
+                    ("Date Time Modified", text(tiff["DateTime"])),
                 ]),
             group(
                 "Exposure",
@@ -164,10 +177,7 @@ public enum ImageLoader {
                     ("Focal Length 35mm", text(exif["FocalLenIn35mmFilm"]).map { "\($0) mm" }),
                     ("Brightness Value", text(exif["BrightnessValue"])),
                     ("Exposure Bias", text(exif["ExposureBiasValue"])),
-                    (
-                        "ISO Speed Rating",
-                        (exif["ISOSpeedRatings"] as? [NSNumber])?.map(\.stringValue).joined(separator: ", ")
-                    ),
+                    ("ISO Speed Rating", iso),
                     ("Flash", text(exif["Flash"])), ("Exposure Program", text(exif["ExposureProgram"])),
                     ("Metering Mode", text(exif["MeteringMode"])),
                 ]),
@@ -178,19 +188,22 @@ public enum ImageLoader {
                     ("Serial Number", text(exif["BodySerialNumber"])), ("Lens", text(exif["LensModel"])),
                 ]),
             group(
-                "Attribution and comments",
-                [
-                    ("Artist", text(tiff["Artist"])), ("Software", text(tiff["Software"])),
-                    ("User Comment", text(exif["UserComment"])),
-                ]),
-            group(
                 "Location",
                 [
                     ("GPS", coordinates), ("Altitude", altitude),
                     ("Direction", text(gps["ImgDirection"]).map { "\($0)° \(text(gps["ImgDirectionRef"]) ?? "")" }),
                 ]),
+            group(
+                "Attribution and comments",
+                [
+                    ("Artist", text(tiff["Artist"])), ("Software", text(tiff["Software"])),
+                    ("User Comment", text(exif["UserComment"])),
+                ]),
         ]
-        return ImageDetails(entry: entry, width: orientedWidth, height: orientedHeight, groups: groups)
+        return ImageDetails(
+            entry: entry, width: orientedWidth, height: orientedHeight, groups: groups,
+            captureWallClock: captureDate(exif["DateTimeOriginal"] as? String, offset: nil),
+            exposureSummary: summary.isEmpty ? nil : summary)
     }
 
     public static func decode(at url: URL) throws -> CGImage {

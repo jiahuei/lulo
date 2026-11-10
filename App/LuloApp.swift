@@ -1,4 +1,5 @@
 import AppKit
+import LuloCore
 
 @main
 @MainActor
@@ -61,6 +62,17 @@ final class LuloApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         view.submenu?.addItem(withTitle: "Previous Image", action: #selector(previousImage), keyEquivalent: "[")
         view.submenu?.addItem(withTitle: "Next Image", action: #selector(nextImage), keyEquivalent: "]")
         view.submenu?.addItem(withTitle: "Toggle Metadata", action: #selector(toggleMetadata), keyEquivalent: "i")
+        view.submenu?.addItem(.separator())
+        // Finder uses Command-1 and Command-2 for its view styles; these are radio-checked the same way.
+        view.submenu?.addItem(withTitle: "as Rows", action: #selector(showRows), keyEquivalent: "1")
+        view.submenu?.addItem(withTitle: "as Preview", action: #selector(showPreview), keyEquivalent: "2")
+        view.submenu?.addItem(withTitle: "Larger Thumbnails", action: #selector(largerThumbnails), keyEquivalent: "+")
+        view.submenu?.addItem(withTitle: "Smaller Thumbnails", action: #selector(smallerThumbnails), keyEquivalent: "-")
+        view.submenu?.addItem(.separator())
+        let background = NSMenuItem(
+            title: "Blurred Background", action: #selector(toggleBlurredBackground), keyEquivalent: "b")
+        background.keyEquivalentModifierMask = [.command, .option]
+        view.submenu?.addItem(background)
         menu.addItem(view)
         NSApp.mainMenu = menu
     }
@@ -73,6 +85,16 @@ final class LuloApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(trashImage) { return viewer?.canTrashCurrentImage == true }
         if menuItem.action == #selector(refreshImages) { return viewer?.canRefresh == true }
+        if menuItem.action == #selector(showRows) || menuItem.action == #selector(showPreview) {
+            let layout = menuItem.action == #selector(showRows) ? GalleryLayout.rows : .preview
+            menuItem.state = viewer?.galleryLayout == layout ? .on : .off
+        }
+        if menuItem.action == #selector(toggleBlurredBackground) {
+            menuItem.state = viewer?.blurredBackground == true ? .on : .off
+        }
+        if menuItem.action == #selector(largerThumbnails) || menuItem.action == #selector(smallerThumbnails) {
+            return viewer?.isGalleryVisible == true
+        }
         return true
     }
 
@@ -83,4 +105,9 @@ final class LuloApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func nextImage() { viewer?.nextImage() }
     @objc private func toggleMetadata() { viewer?.toggleSidebar() }
     @objc private func toggleGallery() { viewer?.toggleGallery() }
+    @objc private func showRows() { viewer?.showRows() }
+    @objc private func showPreview() { viewer?.showPreview() }
+    @objc private func largerThumbnails() { viewer?.largerThumbnails() }
+    @objc private func smallerThumbnails() { viewer?.smallerThumbnails() }
+    @objc private func toggleBlurredBackground() { viewer?.toggleBlurredBackground() }
 }

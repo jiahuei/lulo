@@ -151,3 +151,21 @@ func cancelledThumbnailPreservesRefresh() async throws {
     let retained = try await loader.load(at: url, access: access, generation: 1)
     #expect(retained.image === refreshed.image)
 }
+
+/// Ensures the background image is a small blurred copy that reuses the cached thumbnail instead of decoding again.
+@Test
+func backdropReusesCachedThumbnail() async throws {
+    let folder = try thumbnailTestFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let url = folder.appendingPathComponent("portrait.png")
+    try fixture(at: url, orientation: 6)
+    let loader = ThumbnailLoader()
+    let access = FileAccess(url: folder)
+    let thumbnail = try await loader.load(at: url, access: access)
+    let cached = await loader.cachedBytes
+    let backdrop = try await loader.backdrop(at: url, access: access)
+    #expect(await loader.cachedBytes == cached)
+    #expect(try await loader.load(at: url, access: access).image === thumbnail.image)
+    #expect(abs(max(backdrop.image.width, backdrop.image.height) - 64) <= 1)
+    #expect(backdrop.image.height > backdrop.image.width)
+}

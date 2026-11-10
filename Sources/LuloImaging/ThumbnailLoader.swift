@@ -1,3 +1,4 @@
+import CoreImage
 import Foundation
 import ImageIO
 
@@ -13,6 +14,7 @@ public actor ThumbnailLoader {
     private var cache: DecodedImageCache<LoadedThumbnail>
     private var generation: Int?
     private let decode: @Sendable (URL) throws -> LoadedThumbnail
+    private lazy var context = CIContext(options: [.cacheIntermediates: false])
 
     public init(byteLimit: Int = 1024 * 1024 * 1024) {
         self.byteLimit = max(0, byteLimit)
@@ -42,5 +44,22 @@ public actor ThumbnailLoader {
         // Keep a finished decode for a revisit even if its original cell scrolled out of view.
         try Task.checkCancellation()
         return loaded
+    }
+
+    /// A small, heavily blurred, saturated copy of the cached thumbnail for the window background.
+    /// Blurring a 64-pixel copy is cheap enough to repeat, so only the thumbnail itself is cached.
+    public func backdrop(at url: URL, access: FileAccess, generation: Int = 0) throws -> LoadedThumbnail {
+        let thumbnail = try load(at: url, access: access, generation: generation).image
+        let input = CIImage(cgImage: thumbnail)
+        let scale = 64 / max(input.extent.width, input.extent.height, 1)
+        let small = input.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        // The background covers the window at about 1150 points, so an 80-point blur is 7% of the image.
+        let blurred = small.clampedToExtent()
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.5])
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 64 * 0.07])
+            .cropped(to: small.extent)
+        guard let image = context.createCGImage(blurred, from: small.extent) else { throw ImageLoadError.unreadable }
+        try Task.checkCancellation()
+        return LoadedThumbnail(image: image)
     }
 }

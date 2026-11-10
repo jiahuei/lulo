@@ -59,8 +59,11 @@ func supportedFormatsRemainReadOnly(_ suffix: String) throws {
         #expect(details.height == 8)
         #expect(
             details.groups.map(\.name) == [
-                "File", "Timestamps", "Exposure", "Camera and lens", "Attribution and comments", "Location",
+                "File", "Timestamps", "Exposure", "Camera and lens", "Location", "Attribution and comments",
             ])
+        let names = details.groups.flatMap(\.fields).map(\.name)
+        #expect(names.starts(with: ["File Name", "File Path", "Dimensions", "Date Time Captured"]))
+        #expect(!names.contains("Current Dimensions") && !names.contains("Date Time Original"))
         #expect(try Data(contentsOf: url) == before)
     }
 }
@@ -78,6 +81,7 @@ func orientationAndPrintResolution() throws {
             let details = try ImageLoader.details(at: url)
             #expect(details.width == image.width)
             #expect(details.height == image.height)
+            #expect(details.entry.pixelSize == CGSize(width: 8, height: 12))
         }
     }
 }
@@ -233,5 +237,20 @@ func oversizedImageIsRecoverable() throws {
         let next = folder.appendingPathComponent("next.png")
         try fixture(at: next)
         #expect(try ImageLoader.decode(at: next).width == 12)
+    }
+}
+
+/// Ensures discovery carries orientation-adjusted sizes for gallery rows, leaving unreadable files without one.
+@Test
+func discoveredEntriesCarryOrientedSize() throws {
+    try withFolder { folder in
+        try fixture(at: folder.appendingPathComponent("landscape.jpg"), type: .jpeg, orientation: 1)
+        try fixture(at: folder.appendingPathComponent("portrait.jpg"), type: .jpeg, orientation: 6)
+        try Data("corrupt".utf8).write(to: folder.appendingPathComponent("broken.png"))
+        let sizes = Dictionary(
+            uniqueKeysWithValues: try ImageLoader.discover(in: folder).map { ($0.url.lastPathComponent, $0.pixelSize) })
+        #expect(sizes["landscape.jpg"] == CGSize(width: 12, height: 8))
+        #expect(sizes["portrait.jpg"] == CGSize(width: 8, height: 12))
+        #expect(sizes["broken.png"] == .some(nil))
     }
 }

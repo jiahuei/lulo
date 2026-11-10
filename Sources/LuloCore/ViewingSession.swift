@@ -1,5 +1,10 @@
 import Foundation
 
+// Apple's geometry types live in CoreGraphics; Linux Foundation provides them directly.
+#if canImport(CoreGraphics)
+    import CoreGraphics
+#endif
+
 public enum ImageFormat: String, CaseIterable, Sendable {
     case jpeg = "JPEG"
     case png = "PNG"
@@ -21,13 +26,25 @@ public struct ImageEntry: Equatable, Sendable {
     public let capturedAt: Date?
     public let createdAt: Date?
     public let rating: Int?
+    /// Orientation-adjusted pixel size, read during discovery so gallery layout needs no extra file access.
+    public let pixelSize: CGSize?
 
-    public init(url: URL, format: ImageFormat, capturedAt: Date? = nil, createdAt: Date? = nil, rating: Int? = nil) {
+    public init(
+        url: URL, format: ImageFormat, capturedAt: Date? = nil, createdAt: Date? = nil, rating: Int? = nil,
+        pixelSize: CGSize? = nil
+    ) {
         self.url = url
         self.format = format
         self.capturedAt = capturedAt
         self.createdAt = createdAt
         self.rating = rating
+        self.pixelSize = pixelSize
+    }
+
+    /// Width over height, with a 3:2 placeholder for unreadable files whose size is unknown.
+    public var aspectRatio: Double {
+        guard let pixelSize, pixelSize.width > 0, pixelSize.height > 0 else { return 1.5 }
+        return Double(pixelSize.width / pixelSize.height)
     }
 }
 
@@ -38,9 +55,32 @@ public enum SortMethod: String, CaseIterable, Sendable {
     case fileType = "File Type"
 }
 
+public enum GalleryLayout: String, CaseIterable, Sendable {
+    /// Justified rows of images at their own aspect ratios; the size is the target row height.
+    case rows
+    /// A large preview beside a square grid; the size is the minimum tile edge.
+    case preview
+
+    public var sizeRange: ClosedRange<Double> { self == .rows ? 120...300 : 88...220 }
+    public var sizeStep: Double { self == .rows ? 10 : 6 }
+    public var defaultSize: Double { self == .rows ? 200 : 128 }
+
+    /// Snaps a size to this layout's slider steps within its range.
+    public func clampedSize(_ size: Double) -> Double {
+        guard size.isFinite else { return defaultSize }
+        // Steps are counted from the default because Preview's default (128) is not a multiple of 6 from 88.
+        let steps = ((size - defaultSize) / sizeStep).rounded()
+        return min(sizeRange.upperBound, max(sizeRange.lowerBound, defaultSize + steps * sizeStep))
+    }
+}
+
 public struct Preferences: Equatable, Sendable {
     public var sort: SortMethod
     public var ascending: Bool
+    public var blurredBackground = false
+    public var galleryLayout = GalleryLayout.rows
+    public private(set) var rowHeight = GalleryLayout.rows.defaultSize
+    public private(set) var tileSize = GalleryLayout.preview.defaultSize
 
     public init(sort: SortMethod = .name, ascending: Bool = true) {
         self.sort = sort
@@ -50,11 +90,37 @@ public struct Preferences: Equatable, Sendable {
     public init(defaults: UserDefaults) {
         sort = defaults.string(forKey: "sortMethod").flatMap(SortMethod.init(rawValue:)) ?? .name
         ascending = defaults.object(forKey: "sortAscending") as? Bool ?? true
+        blurredBackground = defaults.object(forKey: "blurredBackground") as? Bool ?? false
+        galleryLayout = defaults.string(forKey: "galleryLayout").flatMap(GalleryLayout.init(rawValue:)) ?? .rows
+        for layout in GalleryLayout.allCases {
+            if let size = defaults.object(forKey: Self.sizeKey(layout)) as? Double {
+                setThumbnailSize(size, for: layout)
+            }
+        }
     }
 
     public func save(to defaults: UserDefaults) {
         defaults.set(sort.rawValue, forKey: "sortMethod")
         defaults.set(ascending, forKey: "sortAscending")
+        defaults.set(blurredBackground, forKey: "blurredBackground")
+        defaults.set(galleryLayout.rawValue, forKey: "galleryLayout")
+        for layout in GalleryLayout.allCases {
+            defaults.set(thumbnailSize(for: layout), forKey: Self.sizeKey(layout))
+        }
+    }
+
+    /// Each layout keeps its own size so switching layouts restores the size last used there.
+    public func thumbnailSize(for layout: GalleryLayout) -> Double {
+        layout == .rows ? rowHeight : tileSize
+    }
+
+    public mutating func setThumbnailSize(_ size: Double, for layout: GalleryLayout) {
+        let size = layout.clampedSize(size)
+        if layout == .rows { rowHeight = size } else { tileSize = size }
+    }
+
+    private static func sizeKey(_ layout: GalleryLayout) -> String {
+        layout == .rows ? "galleryRowHeight" : "galleryTileSize"
     }
 }
 
@@ -67,6 +133,9 @@ public struct ImageFilter: Equatable, Sendable {
         self.ratings = ratings
         self.formats = formats
     }
+
+    /// The number of ticked checkboxes; checking every value in a group still counts each one.
+    public var activeCount: Int { ratings.count + formats.count }
 }
 
 public struct ViewingSession: Sendable {
