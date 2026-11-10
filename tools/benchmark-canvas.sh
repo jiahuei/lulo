@@ -18,6 +18,9 @@ for canvas_sources in "${canvas_versions[@]}"; do
     if [ -f "$canvas_sources/Presentation.swift" ]; then
         canvas_files+=("$canvas_sources/Presentation.swift")
     fi
+    if [ -f "$canvas_sources/Theme.swift" ]; then
+        canvas_files+=("$canvas_sources/Theme.swift" "$canvas_sources/Controls.swift")
+    fi
     xcrun swiftc -target "$canvas_target" -O -swift-version 6 -parse-as-library \
         -I "$canvas_products" "${canvas_files[@]}" \
         tools/BenchmarkCanvas.swift "$canvas_products/LuloCore.o" "$canvas_products/LuloImaging.o" \

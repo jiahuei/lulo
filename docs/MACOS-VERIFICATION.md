@@ -60,3 +60,10 @@ No interactive verification has yet been recorded in this repository.
 - Check Preview's tighter grid, centered numbered rating chips, and resizing of the folder heading. Scroll under a stationary pointer and check that reused tiles do not retain hover styling.
 - Compare Rows with landscape and portrait images: complete rows stay near the target and the final row does not become taller than the preceding row.
 - At both size limits, compare mouse dragging, all four slider arrows, VoiceOver increment/decrement, buttons, Command-plus / Command-equals, and Command-minus. Their values must agree and selection must stay visible.
+
+## PR #18 visual design port
+
+- [ ] Compare empty/error/no-match messages, prominent actions, gallery headings, captions, metadata header and group dividers with PR #18 in both appearances and at 720 points. Preserve the larger rating stars and 8-point fitted-image inset.
+- [ ] Check inverted selected states, hover and pressed feedback, release outside a button, radio-choice announcements, keyboard focus and disabled controls. Fit / 100% has no inner border. Toolbar order remains Display, Previous/Next, Gallery/Open/Refresh, then Sort/Metadata/Trash.
+- [ ] Confirm the spoke-wheel Refresh icon animates only for a user-started refresh, remains still with Reduce Motion, and stops after completion or failure.
+- [ ] Compare background saturation and brightness in both appearances. Capsules and metadata use translucent fills over the wall or blurred background; Sort & Filter and Trash retain native macOS framing.

@@ -11,11 +11,10 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private lazy var gallery = GalleryView(loader: thumbnailLoader)
     private let galleryButton = CapsuleButton()
     private var galleryVisible = false
-    private let metadata = MetadataTextView()
-    private let sidebar = NSScrollView()
-    private let display = NSSegmentedControl()
-    private let sorting = NSSegmentedControl()
-    private let direction = NSSegmentedControl()
+    private let display = ButtonChoices(
+        labels: ["Fit to Window", "100%"], symbols: ["arrow.down.right.and.arrow.up.left", nil])
+    private let sorting = ButtonChoices(labels: SortMethod.allCases.map(\.rawValue), track: true)
+    private let direction = ButtonChoices(labels: ["Ascending", "Descending"], track: true)
     private var ratingButtons: [NSButton] = []
     private var formatButtons: [NSButton] = []
     private let info = CapsuleButton()
@@ -29,17 +28,19 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private let status = NSTextField(labelWithString: "")
     private let rating = RatingChip()
     private let zoomLabel = NSTextField(labelWithString: "")
-    private let metadataPanel = NSView()
+    private let metadataPanel = MetadataPanel()
     private let breadcrumb = BreadcrumbView()
     private let background = ViewerBackground()
     private let backgroundRenderer = BackgroundRenderer()
     private let blurred = CapsuleButton()
-    private let galleryLayout = NSSegmentedControl()
+    private let galleryLayout = ButtonChoices(
+        labels: ["Rows", "Preview"], symbols: ["rectangle.grid.1x2", "sidebar.squares.left"])
     private let sizeSlider = ThumbnailSizeSlider()
+    private var gallerySizeControls: NSStackView?
     private let smaller = CapsuleButton()
     private let larger = CapsuleButton()
     private let refreshSpinner = NSProgressIndicator()
-    private let refreshGlyph = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")
+    private let refreshGlyph = Theme.refreshGlyph(phase: 0)
     private var sliderWidth: NSLayoutConstraint?
     private var breadcrumbWidth: NSLayoutConstraint?
     private var thumbnailTask: Task<Void, Never>?
@@ -89,7 +90,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         window.toolbarStyle = .unified
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.backgroundColor = ViewerColors.wall
+        window.backgroundColor = Theme.wall
         super.init(window: window)
         window.delegate = self
         worker.maxConcurrentOperationCount = 1
@@ -105,54 +106,30 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         super.showWindow(sender)
     }
 
-    private func segments(_ control: NSSegmentedControl, title: String, values: [String], action: Selector) {
-        control.segmentCount = values.count
-        control.trackingMode = .selectOne
-        control.segmentStyle = .rounded
-        for (index, value) in values.enumerated() {
-            control.setLabel(value, forSegment: index)
-            control.setToolTip(value, forSegment: index)
-        }
-        control.setAccessibilityLabel(title)
-        control.target = self
-        control.action = action
-        control.heightAnchor.constraint(equalToConstant: 28).isActive = true
-    }
-
     private func buildInterface() {
         guard let window else { return }
-        for control in [display, galleryLayout, sorting, direction] { control.segmentDistribution = .fillEqually }
         display.identifier = .init("Display")
         galleryLayout.identifier = .init("GalleryLayout")
         sizeSlider.identifier = .init("ThumbnailSize")
-        display.segmentCount = 2
-        display.trackingMode = .selectOne
-        display.segmentStyle = .texturedRounded
-        display.cell?.isBordered = false
-        display.setImage(
-            NSImage(systemSymbolName: "arrow.down.right.and.arrow.up.left", accessibilityDescription: "Fit to Window"),
-            forSegment: 0)
-        display.setLabel("100%", forSegment: 1)
-        display.setToolTip("Fit to Window", forSegment: 0)
-        display.setToolTip("100%", forSegment: 1)
-        display.setAccessibilityLabel("Viewing mode")
-        display.target = self
-        display.action = #selector(viewingModeChanged)
-        segments(
-            sorting, title: "Sort images by", values: SortMethod.allCases.map(\.rawValue),
-            action: #selector(preferencesChanged))
-        segments(
-            direction, title: "Sort direction", values: ["Ascending", "Descending"],
-            action: #selector(preferencesChanged))
+        for (control, label, action) in [
+            (display, "Viewing mode", #selector(viewingModeChanged)),
+            (sorting, "Sort images by", #selector(preferencesChanged)),
+            (direction, "Sort direction", #selector(preferencesChanged)),
+            (galleryLayout, "Gallery layout", #selector(layoutChanged)),
+        ] {
+            control.setAccessibilityLabel(label)
+            control.target = self
+            control.action = action
+        }
         ratingButtons = ["Unrated / 0 Stars", "1 Star", "2 Stars", "3 Stars", "4 Stars", "5 Stars"].map {
             NSButton(checkboxWithTitle: $0, target: self, action: #selector(filtersChanged))
         }
         formatButtons = ImageFormat.allCases.map {
             NSButton(checkboxWithTitle: $0.rawValue, target: self, action: #selector(filtersChanged))
         }
-        display.selectedSegment = 0
-        sorting.selectedSegment = SortMethod.allCases.firstIndex(of: session.preferences.sort) ?? 0
-        direction.selectedSegment = session.preferences.ascending ? 0 : 1
+        display.selectedIndex = 0
+        sorting.selectedIndex = SortMethod.allCases.firstIndex(of: session.preferences.sort) ?? 0
+        direction.selectedIndex = session.preferences.ascending ? 0 : 1
         configureButton(previous, title: "Previous image", symbol: "chevron.left", action: #selector(previousImage))
         configureButton(next, title: "Next image", symbol: "chevron.right", action: #selector(nextImage))
         configureButton(info, title: "Show metadata", symbol: "sidebar.right", action: #selector(toggleSidebar))
@@ -172,18 +149,9 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         configureButton(
             smaller, title: "Smaller thumbnails", symbol: "square.grid.3x3", action: #selector(smallerThumbnails))
         configureButton(larger, title: "Larger thumbnails", symbol: "square", action: #selector(largerThumbnails))
-        galleryLayout.segmentCount = 2
-        galleryLayout.trackingMode = .selectOne
-        galleryLayout.segmentStyle = .texturedRounded
-        galleryLayout.setImage(
-            NSImage(systemSymbolName: "rectangle.grid.1x2", accessibilityDescription: "Rows"), forSegment: 0)
-        galleryLayout.setImage(
-            NSImage(systemSymbolName: "sidebar.squares.left", accessibilityDescription: "Preview"), forSegment: 1)
-        galleryLayout.setToolTip("Rows (⌘1)", forSegment: 0)
-        galleryLayout.setToolTip("Preview (⌘2)", forSegment: 1)
-        galleryLayout.setAccessibilityLabel("Gallery layout")
-        galleryLayout.target = self
-        galleryLayout.action = #selector(layoutChanged)
+        galleryLayout.buttons[0].setLabel("Rows (⌘1)")
+        galleryLayout.buttons[1].setLabel("Preview (⌘2)")
+        sizeSlider.controlSize = .small
         sizeSlider.isContinuous = true
         sizeSlider.target = self
         sizeSlider.action = #selector(thumbnailSizeChanged)
@@ -198,34 +166,6 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
 
-        metadata.isEditable = false
-        metadata.isSelectable = true
-        metadata.isVerticallyResizable = true
-        metadata.isHorizontallyResizable = false
-        metadata.textContainerInset = NSSize(width: 20, height: 20)
-        metadata.drawsBackground = false
-        metadata.autoresizingMask = [.width]
-        metadata.textContainer?.widthTracksTextView = true
-        metadata.setAccessibilityLabel("Image metadata")
-        sidebar.documentView = metadata
-        sidebar.hasVerticalScroller = true
-        sidebar.drawsBackground = false
-        let panel = MaterialPanel(cornerRadius: 18)
-        metadataPanel.addSubview(panel)
-        panel.addSubview(sidebar)
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        sidebar.translatesAutoresizingMaskIntoConstraints = false
-        metadataPanel.widthAnchor.constraint(equalToConstant: 314).isActive = true
-        NSLayoutConstraint.activate([
-            panel.leadingAnchor.constraint(equalTo: metadataPanel.leadingAnchor),
-            panel.trailingAnchor.constraint(equalTo: metadataPanel.trailingAnchor, constant: -14),
-            panel.topAnchor.constraint(equalTo: metadataPanel.topAnchor, constant: 10),
-            panel.bottomAnchor.constraint(equalTo: metadataPanel.bottomAnchor, constant: -14),
-            sidebar.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
-            sidebar.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
-            sidebar.topAnchor.constraint(equalTo: panel.topAnchor),
-            sidebar.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
-        ])
         metadataPanel.isHidden = true
         gallery.isHidden = true
         let workspace = NSView()
@@ -249,10 +189,10 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         status.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .regular)
         status.textColor = .secondaryLabelColor
         zoomLabel.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .regular)
-        zoomLabel.textColor = ViewerColors.secondary
+        zoomLabel.textColor = Theme.textSecondary
         zoomLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         filterSummary.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .regular)
-        filterSummary.textColor = ViewerColors.accentText
+        filterSummary.textColor = Theme.accentText
         filterSummary.lineBreakMode = .byTruncatingTail
         filterSummary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let footer = NSView()
@@ -297,7 +237,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         ])
         canvas.zoomChanged = { [weak self] in self?.updateZoomStatus() }
         canvas.navigate = { [weak self] delta in self?.navigate(delta) }
-        canvas.modeChanged = { [weak self] mode in self?.display.selectedSegment = mode == .fit ? 0 : 1 }
+        canvas.modeChanged = { [weak self] mode in self?.display.selectedIndex = mode == .fit ? 0 : 1 }
         gallery.selectionChanged = { [weak self] url in
             guard let self else { return }
             self.session.select(url)
@@ -308,7 +248,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         canvas.resetZoom()
         canvas.showMessage(
             "Open an image.", detail: "View JPEG, PNG, and HEIF images.",
-            actionTitle: "Open Image…", action: { [weak self] in self?.openPanel() })
+            actionTitle: "Open Image", action: { [weak self] in self?.openPanel() })
         updateStatus()
         window.makeFirstResponder(canvas)
     }
@@ -319,10 +259,10 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
             "Show metadata": "Metadata", "Move to Trash": "Trash", "Refresh (⌘R)": "Refresh", "Sort & Filter": "Browse",
         ]
         button.identifier = .init(identifiers[title] ?? title)
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        button.image = Theme.symbol(symbol)
         button.imagePosition = .imageOnly
         button.bezelStyle = .texturedRounded
-        button.isBordered = true
+        button.isBordered = false
         button.setButtonType(.momentaryPushIn)
         button.imageScaling = .scaleProportionallyDown
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -335,59 +275,61 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     }
 
     private func makeBrowsePopover() {
+        func label(_ text: String) -> NSTextField {
+            let label = NSTextField(labelWithString: text)
+            label.font = .systemFont(ofSize: 11, weight: .semibold)
+            label.textColor = Theme.textTertiary
+            return label
+        }
         let heading = NSTextField(labelWithString: "Sort & Filter")
-        heading.font = .systemFont(ofSize: 15, weight: .semibold)
-        let reset = NSButton(title: "Clear Filters", target: self, action: #selector(clearFilters))
+        heading.font = .systemFont(ofSize: 15, weight: .bold)
         let ratings = NSGridView(views: [
             [ratingButtons[0], ratingButtons[3]],
             [ratingButtons[1], ratingButtons[4]],
             [ratingButtons[2], ratingButtons[5]],
         ])
-        ratings.rowSpacing = 8
-        ratings.columnSpacing = 12
+        ratings.rowSpacing = 6
+        ratings.columnSpacing = 10
         ratings.xPlacement = .fill
         ratingButtons[0].widthAnchor.constraint(equalTo: ratingButtons[3].widthAnchor).isActive = true
         let formats = NSStackView(views: formatButtons)
-        formats.spacing = 8
-        let grid = NSStackView(views: [
-            NSTextField(labelWithString: "Sort by"), sorting,
-            NSTextField(labelWithString: "Direction"), direction,
-            NSTextField(labelWithString: "Rating"), ratings,
-            NSTextField(labelWithString: "File type"), formats,
-        ])
-        grid.orientation = .vertical
-        grid.alignment = .leading
-        grid.spacing = 8
-        for control in [sorting, direction] {
-            control.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
-        }
-        ratings.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
+        formats.spacing = 16
         let note = NSTextField(
             wrappingLabelWithString:
                 "Select any matching values in each group. No checkmarks means all values. Rating and file type apply together."
         )
         note.font = .systemFont(ofSize: 11)
-        note.textColor = .secondaryLabelColor
-        let stack = NSStackView(views: [heading, grid, note, reset])
+        note.textColor = Theme.textSecondary
+        let separator = NSBox()
+        separator.boxType = .separator
+        let reset = NSButton(title: "Clear Filters", target: self, action: #selector(clearFilters))
+        reset.bezelStyle = .rounded
+        let footer = NSStackView()
+        footer.setViews([reset], in: .trailing)
+        let sections: [[NSView]] = [
+            [heading], [label("Sort by"), sorting], [label("Direction"), direction],
+            [label("Rating"), ratings], [label("File type"), formats], [note], [separator, footer],
+        ]
+        let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 16
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 330, height: 430))
+        stack.spacing = 14
+        for views in sections {
+            let section = NSStackView(views: views)
+            section.orientation = .vertical
+            section.alignment = .leading
+            section.spacing = 7
+            stack.addArrangedSubview(section)
+            for view in views + [section] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        }
+        let container = NSView()
+        pin(stack, in: container, insets: NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16))
         container.widthAnchor.constraint(equalToConstant: 330).isActive = true
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            grid.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            note.widthAnchor.constraint(equalTo: stack.widthAnchor),
-        ])
         let controller = NSViewController()
         controller.view = container
         browsePopover.contentViewController = controller
         browsePopover.behavior = .transient
-        browsePopover.contentSize = NSSize(width: 330, height: 430)
+        browsePopover.contentSize = container.fittingSize
     }
 
     @objc private func showBrowse() {
@@ -408,66 +350,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         filtersChanged()
     }
 
-    private func showMetadata(_ details: ImageDetails) {
-        metadata.dividerLocations = []
-        metadata.ratingRange = nil
-        let text = NSMutableAttributedString(
-            string: details.entry.url.lastPathComponent + "\n",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 20, weight: .bold), .foregroundColor: ViewerColors.primary,
-            ])
-        if let captured = details.entry.capturedAt {
-            text.append(
-                NSAttributedString(
-                    string: captured.formatted(date: .abbreviated, time: .shortened) + "\n",
-                    attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: ViewerColors.secondary]))
-        }
-        if let stars = details.entry.rating, (1...5).contains(stars) {
-            let chip = NSMutableAttributedString(
-                string: "★ \(stars)\n",
-                attributes: [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
-                    .foregroundColor: ViewerColors.primary,
-                ])
-            chip.addAttribute(.foregroundColor, value: ViewerColors.star, range: NSRange(location: 0, length: 1))
-            metadata.ratingRange = NSRange(location: text.length, length: chip.length - 1)
-            text.append(chip)
-        }
-        for group in details.groups where !group.fields.isEmpty {
-            metadata.dividerLocations.append(text.length)
-            let heading = NSMutableParagraphStyle()
-            heading.paragraphSpacingBefore = text.length == 0 ? 0 : 18
-            heading.paragraphSpacing = 8
-            text.append(
-                NSAttributedString(
-                    string: group.name + "\n",
-                    attributes: [
-                        .font: NSFont.systemFont(ofSize: 12, weight: .bold),
-                        .foregroundColor: NSColor.labelColor, .paragraphStyle: heading,
-                    ]))
-            for field in group.fields {
-                text.append(
-                    NSAttributedString(
-                        string: field.name + "\n",
-                        attributes: [
-                            .font: NSFont.systemFont(ofSize: 11), .foregroundColor: ViewerColors.tertiary,
-                        ]))
-                let value = NSMutableParagraphStyle()
-                value.paragraphSpacing = 10
-                value.lineBreakMode = .byCharWrapping
-                text.append(
-                    NSAttributedString(
-                        string: field.value + "\n",
-                        attributes: [
-                            .font: NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .regular),
-                            .foregroundColor: ViewerColors.primary,
-                            .paragraphStyle: value,
-                        ]))
-            }
-        }
-        metadata.textStorage?.setAttributedString(text)
-        metadata.scrollToBeginningOfDocument(nil)
-    }
+    private func showMetadata(_ details: ImageDetails) { metadataPanel.show(details) }
 
     var canTrashCurrentImage: Bool {
         !galleryVisible && session.selectedURL != nil && canvas.image != nil && !canvas.isLoading && !trashInProgress
@@ -579,7 +462,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         info.setAccessibilityLabel("Show metadata")
         metadataPanel.isHidden = true
         canvas.resetZoom()
-        metadata.string = ""
+        metadataPanel.clear()
         rating.stringValue = ""
         status.stringValue = ""
         let parent = url.deletingLastPathComponent().standardizedFileURL
@@ -747,7 +630,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
             return
         }
         let currentRequest = request
-        metadata.string = ""
+        metadataPanel.clear()
         rating.stringValue = ""
         guard let url = session.selectedURL ?? (reloadingOpenedImage ? openedURL : nil) else {
             canvas.image = nil
@@ -755,7 +638,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
             if session.entries.isEmpty {
                 canvas.showMessage(
                     "No images remaining", detail: "Open another image to continue.",
-                    actionTitle: "Open Image…", action: { [weak self] in self?.openPanel() })
+                    actionTitle: "Open Image", action: { [weak self] in self?.openPanel() })
             } else {
                 canvas.showMessage(
                     "No images match the current filters.", detail: filterSummary.stringValue,
@@ -881,12 +764,12 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     @objc func nextImage() { navigate(1) }
 
     @objc private func viewingModeChanged() {
-        canvas.resetZoom(to: display.selectedSegment == 0 ? .fit : .actualSize)
+        canvas.resetZoom(to: display.selectedIndex == 0 ? .fit : .actualSize)
     }
 
     @objc private func preferencesChanged() {
-        session.preferences.sort = SortMethod.allCases[sorting.selectedSegment]
-        session.preferences.ascending = direction.selectedSegment == 0
+        session.preferences.sort = SortMethod.allCases[sorting.selectedIndex]
+        session.preferences.ascending = direction.selectedIndex == 0
         session.preferences.save(to: .standard)
         updateStatus()
         prefetchNeighbor()
@@ -967,7 +850,7 @@ extension ViewerController {
 
     @objc func showRows() { chooseLayout(.rows) }
     @objc func showPreview() { chooseLayout(.preview) }
-    @objc private func layoutChanged() { chooseLayout(galleryLayout.selectedSegment == 0 ? .rows : .preview) }
+    @objc private func layoutChanged() { chooseLayout(galleryLayout.selectedIndex == 0 ? .rows : .preview) }
     private func chooseLayout(_ layout: GalleryLayout) {
         browsePopover.performClose(nil)
         session.preferences.galleryLayout = layout
@@ -1008,13 +891,14 @@ extension ViewerController {
     private func updatePresentationControls() {
         display.isHidden = galleryVisible
         galleryLayout.isHidden = !galleryVisible
+        gallerySizeControls?.isHidden = !galleryVisible
         sizeSlider.isHidden = !galleryVisible
         let width = window?.frame.width ?? 1000
         smaller.isHidden = !galleryVisible || width < 900
         larger.isHidden = smaller.isHidden
         sliderWidth?.constant = width < 900 ? 64 : 92
         let mode = session.preferences.galleryLayout
-        galleryLayout.selectedSegment = mode == .rows ? 0 : 1
+        galleryLayout.selectedIndex = mode == .rows ? 0 : 1
         sizeSlider.galleryLayout = mode
         sizeSlider.minValue = mode.sizeRange.lowerBound
         sizeSlider.maxValue = mode.sizeRange.upperBound
@@ -1026,7 +910,7 @@ extension ViewerController {
         larger.isEnabled = sizeSlider.doubleValue < sizeSlider.maxValue
         blurred.state = session.preferences.blurredBackground ? .on : .off
         background.enabled = session.preferences.blurredBackground
-        status.textColor = session.preferences.blurredBackground ? ViewerColors.primary : ViewerColors.secondary
+        status.textColor = session.preferences.blurredBackground ? Theme.textPrimary : Theme.textSecondary
         zoomLabel.textColor = status.textColor
         breadcrumb.update(
             file: session.selectedURL ?? openedURL, authorizedFolder: folderAccess?.url,
@@ -1150,17 +1034,16 @@ extension ViewerController: NSToolbarDelegate {
         case "Display":
             for control in [display, galleryLayout] {
                 control.translatesAutoresizingMaskIntoConstraints = false
-                control.widthAnchor.constraint(equalToConstant: control === display ? 96 : 72).isActive = true
+                control.widthAnchor.constraint(equalToConstant: control === display ? 78 : 66).isActive = true
                 control.heightAnchor.constraint(equalToConstant: 28).isActive = true
             }
             sizeSlider.translatesAutoresizingMaskIntoConstraints = false
             sliderWidth = sizeSlider.widthAnchor.constraint(equalToConstant: 92)
             sliderWidth?.isActive = true
-            let sizeDivider = NSBox()
-            sizeDivider.boxType = .separator
-            sizeDivider.widthAnchor.constraint(equalToConstant: 1).isActive = true
-            sizeDivider.heightAnchor.constraint(equalToConstant: 16).isActive = true
-            let sizeControls = NSStackView(views: [galleryLayout, smaller, sizeSlider, larger])
+            let sizeDivider = HairlineDivider()
+            let layoutDivider = HairlineDivider()
+            let sizeControls = NSStackView(views: [galleryLayout, layoutDivider, smaller, sizeSlider, larger])
+            gallerySizeControls = sizeControls
             sizeControls.spacing = 2
             sizeControls.alignment = .centerY
             views = [display, sizeControls, sizeDivider, blurred]
@@ -1171,18 +1054,7 @@ extension ViewerController: NSToolbarDelegate {
             item.label = "Sort and Filter, Metadata and Trash"
         default: return nil
         }
-        let capsule = MaterialPanel()
-        let row = NSStackView(views: views)
-        row.spacing = 2
-        row.alignment = .centerY
-        row.translatesAutoresizingMaskIntoConstraints = false
-        capsule.addSubview(row)
-        NSLayoutConstraint.activate([
-            capsule.heightAnchor.constraint(equalToConstant: 34),
-            row.leadingAnchor.constraint(equalTo: capsule.leadingAnchor, constant: 3),
-            row.trailingAnchor.constraint(equalTo: capsule.trailingAnchor, constant: -3),
-            row.centerYAnchor.constraint(equalTo: capsule.centerYAnchor),
-        ])
+        let capsule = CapsuleView(views)
         item.view = capsule
         return item
     }

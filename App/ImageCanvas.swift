@@ -6,21 +6,18 @@ final class ImageCanvas: NSView {
     var image: CGImage? {
         didSet {
             if image != nil { zoom.nextImage() }
-            messageStack.isHidden = image != nil
+            message.isHidden = image != nil
             setAccessibilityElement(image != nil)
             hideLoading()
             needsDisplay = true
             zoomChanged?()
         }
     }
-    private let messageTitle = NSTextField(wrappingLabelWithString: "")
-    private let messageDetail = NSTextField(wrappingLabelWithString: "")
-    private let messageButton = NSButton()
+    let message = MessageView()
     private let progress = NSProgressIndicator()
-    private let loadingBox = NSVisualEffectView()
+    /// Solid rather than translucent so the filename reads over bright images.
+    let loadingBox = PanelView(fill: Theme.solidPanel, radius: 14)
     private let loadingFilename = NSTextField(labelWithString: "")
-    private let messageStack = NSStackView()
-    private var messageAction: (() -> Void)?
     var zoom = ZoomState() { didSet { zoomChanged?() } }
     var modeChanged: ((ViewingMode) -> Void)?
     var navigate: ((Int) -> Void)?
@@ -33,51 +30,22 @@ final class ImageCanvas: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityRole(.image)
-        messageTitle.font = .systemFont(ofSize: 38, weight: .bold)
-        messageTitle.alignment = .left
-        messageDetail.font = .systemFont(ofSize: 14)
-        messageDetail.textColor = .secondaryLabelColor
-        messageDetail.alignment = .left
-        messageButton.bezelStyle = .rounded
-        messageButton.target = self
-        messageButton.action = #selector(performMessageAction)
         progress.style = .spinning
         progress.controlSize = .small
         progress.isDisplayedWhenStopped = false
         progress.setAccessibilityLabel("Loading image")
-        messageStack.orientation = .vertical
-        messageStack.alignment = .leading
-        messageStack.spacing = 12
-        for view in [messageTitle, messageDetail, messageButton] { messageStack.addArrangedSubview(view) }
-        messageStack.setCustomSpacing(20, after: messageDetail)
-        // Let the preferred measure expand wrapping labels beyond their intrinsic width.
-        for view in [messageStack, messageTitle, messageDetail] {
-            view.setContentHuggingPriority(.init(1), for: .horizontal)
-        }
-        messageStack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(messageStack)
-        let preferredMessageWidth = messageStack.widthAnchor.constraint(equalToConstant: 440)
-        // A preferred text measure must not increase the window's minimum width when the panel is open.
-        preferredMessageWidth.priority = .init(49)
-        preferredMessageWidth.isActive = true
+        message.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(message)
+        // A left-aligned block, centred as a whole in the content area.
         NSLayoutConstraint.activate([
-            messageStack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            messageStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            messageStack.widthAnchor.constraint(lessThanOrEqualToConstant: 440),
-            messageStack.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
-            messageTitle.widthAnchor.constraint(equalTo: messageStack.widthAnchor),
-            messageDetail.widthAnchor.constraint(equalTo: messageStack.widthAnchor),
+            message.centerXAnchor.constraint(equalTo: centerXAnchor),
+            message.centerYAnchor.constraint(equalTo: centerYAnchor),
+            message.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -64),
         ])
 
-        loadingBox.material = .hudWindow
-        loadingBox.blendingMode = .withinWindow
-        loadingBox.state = .active
-        loadingBox.wantsLayer = true
-        loadingBox.layer?.cornerRadius = 14
-        loadingBox.layer?.backgroundColor = ViewerColors.solid.cgColor
-        loadingBox.layer?.masksToBounds = true
         loadingBox.isHidden = true
         loadingFilename.font = .systemFont(ofSize: 13, weight: .medium)
+        loadingFilename.textColor = Theme.textPrimary
         loadingFilename.lineBreakMode = .byTruncatingMiddle
         loadingFilename.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let loadingRow = NSStackView(views: [progress, loadingFilename])
@@ -91,12 +59,12 @@ final class ImageCanvas: NSView {
         NSLayoutConstraint.activate([
             loadingBox.centerXAnchor.constraint(equalTo: centerXAnchor),
             loadingBox.centerYAnchor.constraint(equalTo: centerYAnchor),
-            loadingBox.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+            loadingBox.widthAnchor.constraint(lessThanOrEqualToConstant: 320),
             loadingBox.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
-            loadingRow.leadingAnchor.constraint(equalTo: loadingBox.leadingAnchor, constant: 20),
-            loadingRow.trailingAnchor.constraint(equalTo: loadingBox.trailingAnchor, constant: -20),
-            loadingRow.topAnchor.constraint(equalTo: loadingBox.topAnchor, constant: 16),
-            loadingRow.bottomAnchor.constraint(equalTo: loadingBox.bottomAnchor, constant: -16),
+            loadingRow.leadingAnchor.constraint(equalTo: loadingBox.leadingAnchor, constant: 18),
+            loadingRow.trailingAnchor.constraint(equalTo: loadingBox.trailingAnchor, constant: -18),
+            loadingRow.topAnchor.constraint(equalTo: loadingBox.topAnchor, constant: 12),
+            loadingRow.bottomAnchor.constraint(equalTo: loadingBox.bottomAnchor, constant: -12),
             progress.widthAnchor.constraint(equalToConstant: 16),
             progress.heightAnchor.constraint(equalToConstant: 16),
         ])
@@ -109,26 +77,22 @@ final class ImageCanvas: NSView {
         action: (() -> Void)? = nil
     ) {
         hideLoading()
-        messageTitle.stringValue = title
-        messageDetail.stringValue = detail
-        messageButton.title = actionTitle ?? ""
-        messageButton.isHidden = actionTitle == nil
-        messageAction = action
-        messageStack.isHidden = false
+        message.show(title, detail: detail, actionTitle: actionTitle, action: action)
+        message.isHidden = false
         setAccessibilityElement(false)
     }
 
     func beginLoading() {
         hideLoading()
         isLoading = true
-        messageStack.isHidden = true
+        message.isHidden = true
         // A cache lookup is pending, but only a miss needs visible loading feedback.
         setAccessibilityElement(false)
     }
 
     func showLoading(filename: String) {
         beginLoading()
-        loadingFilename.stringValue = "Loading " + filename
+        loadingFilename.stringValue = "Loading \(filename)"
         loadingFilename.toolTip = filename
         loadingBox.isHidden = false
         progress.startAnimation(nil)
@@ -140,19 +104,10 @@ final class ImageCanvas: NSView {
         loadingBox.isHidden = true
     }
 
-    @objc private func performMessageAction() { messageAction?() }
-
     func resetZoom(to mode: ViewingMode = .fit) {
         zoom.reset(to: mode)
         modeChanged?(zoom.mode)
         needsDisplay = true
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            loadingBox.layer?.backgroundColor = ViewerColors.solid.cgColor
-        }
     }
 
     override func viewDidChangeBackingProperties() {
@@ -163,6 +118,7 @@ final class ImageCanvas: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        message.updateHeadlineSize()
         needsDisplay = true
         zoomChanged?()
     }

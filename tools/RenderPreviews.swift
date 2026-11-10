@@ -202,34 +202,36 @@ enum RenderPreviews {
         guard let window = viewer.window, let root = window.contentView,
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
             let display = toolbarControl(window, "Display")
-                as? NSSegmentedControl,
-            display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
+                as? ButtonChoices,
+            display.selectedIndex == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
         else { throw PreviewError.displayToggleFailed }
         for (segment, expected) in [(1, ViewingMode.actualSize), (1, .actualSize), (0, .fit), (0, .fit)] {
             canvas.zoom.scroll(up: true, currentScale: 2)
-            display.selectedSegment = segment
-            display.sendAction(display.action, to: display.target)
-            guard canvas.zoom.mode == expected,
+            display.buttons[segment].performClick(nil)
+            guard display.buttons[segment].accessibilityRole() == .radioButton,
+                display.buttons[segment].accessibilityValue() as? NSNumber == NSNumber(value: true),
+                !display.buttons[segment].isHighlighted,
+                canvas.zoom.mode == expected,
                 canvas.zoom.scale == (expected == .fit ? nil : 1)
             else { throw PreviewError.displayToggleFailed }
             let cursor = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
             try doubleClick(canvas, at: cursor)
-            guard display.selectedSegment == (segment == 0 ? 1 : 0),
+            guard display.selectedIndex == (segment == 0 ? 1 : 0),
                 canvas.zoom.scale == (expected == .fit ? 1 : nil)
             else { throw PreviewError.displayToggleFailed }
             try doubleClick(canvas, at: cursor)
-            guard display.selectedSegment == segment else { throw PreviewError.displayToggleFailed }
+            guard display.selectedIndex == segment else { throw PreviewError.displayToggleFailed }
             let restored = ViewerController()
             defer { restored.window?.close() }
             guard
-                let restoredDisplay = toolbarControl(restored.window, "Display") as? NSSegmentedControl,
-                restoredDisplay.selectedSegment == 0
+                let restoredDisplay = toolbarControl(restored.window, "Display") as? ButtonChoices,
+                restoredDisplay.selectedIndex == 0
             else { throw PreviewError.displayToggleFailed }
         }
         canvas.resetZoom(to: .actualSize)
         window.close()
         viewer.showWindow(nil)
-        guard canvas.zoom.mode == .fit, canvas.zoom.scale == nil, display.selectedSegment == 0 else {
+        guard canvas.zoom.mode == .fit, canvas.zoom.scale == nil, display.selectedIndex == 0 else {
             throw PreviewError.displayToggleFailed
         }
     }
@@ -263,7 +265,7 @@ enum RenderPreviews {
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
             let display = toolbarControl(window, "Display")
-                as? NSSegmentedControl,
+                as? ButtonChoices,
             let trash = toolbarControl(window, "Trash") as? NSButton
         else { throw PreviewError.galleryFailed(line: #line) }
         defer { window.close() }
@@ -319,7 +321,7 @@ enum RenderPreviews {
         guard !gallery.isHidden, canvas.isHidden, collection.visibleItems().count < 81,
             collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)],
             !viewer.canTrashCurrentImage, !trash.isEnabled, !display.isEnabled,
-            display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
+            display.selectedIndex == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil
         else { throw PreviewError.galleryFailed(line: #line) }
         viewer.trashCurrentImage()
         guard window.attachedSheet == nil else { throw PreviewError.galleryFailed(line: #line) }
@@ -351,7 +353,7 @@ enum RenderPreviews {
         }
         try key(36)
         try waitUntil { gallery.isHidden && viewer.canTrashCurrentImage && window.title == "photo2.png" }
-        guard display.isEnabled, display.selectedSegment == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil else {
+        guard display.isEnabled, display.selectedIndex == 0, canvas.zoom.mode == .fit, canvas.zoom.scale == nil else {
             throw PreviewError.displayToggleFailed
         }
         viewer.toggleGallery()
@@ -690,7 +692,7 @@ enum RenderPreviews {
             settle()
             root.layoutSubtreeIfNeeded()
             guard canvas.image === image, canvas.isLoading,
-                let box = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first,
+                let box = descendants(canvas).compactMap({ $0 as? PanelView }).first,
                 !box.isHidden, box.frame.width <= 360, box.frame.height <= 80,
                 canvas.bounds.contains(box.frame),
                 descendants(box).compactMap({ $0 as? NSTextField }).contains(where: {
@@ -757,7 +759,7 @@ enum RenderPreviews {
             // Keep the previous pixels while checking the cache; a miss may show the overlay after yielding.
             guard canvas.image === retainedImage, canvas.zoom.scale == retainedScale, canvas.isLoading,
                 metadata.string.isEmpty,
-                descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).allSatisfy(\.isHidden)
+                descendants(canvas).compactMap({ $0 as? PanelView }).allSatisfy(\.isHidden)
             else { throw PreviewError.loadingOverlayFailed(line: #line) }
         }
         var index = 0
@@ -868,7 +870,7 @@ enum RenderPreviews {
         let viewer = ViewerController(imageStore: store, automaticallyRefresh: false)
         guard let window = viewer.window, let root = window.contentView,
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
-            let overlay = descendants(canvas).compactMap({ $0 as? NSVisualEffectView }).first
+            let overlay = descendants(canvas).compactMap({ $0 as? PanelView }).first
         else { throw PreviewError.navigationFailed }
         defer { window.close() }
         func waitWithoutOverlay(_ ready: () -> Bool) throws {

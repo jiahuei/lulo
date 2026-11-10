@@ -5,90 +5,11 @@ import LuloImaging
 import QuartzCore
 
 @MainActor
-enum ViewerColors {
-    static func color(_ light: UInt32, _ dark: UInt32) -> NSColor {
-        NSColor(name: nil) { appearance in
-            let value = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-            return NSColor(
-                srgbRed: Double((value >> 16) & 255) / 255,
-                green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255, alpha: 1)
-        }
-    }
-    static let wall = color(0xECEDEF, 0x101213)
-    static let primary = color(0x1D1D1F, 0xF0F3F1)
-    static let secondary = color(0x6E6E73, 0x98A29E)
-    static let tertiary = color(0x9A9AA0, 0x6E7974)
-    static let accent = color(0x0064D2, 0x4C94FF)
-    static let accentText = color(0x0064D2, 0x9CC5FF)
-    static let star = color(0xD99A00, 0xFFD54A)
-    static let stroke = color(0xD4D5D7, 0x2B3031)
-    static let placeholder = color(0xDEDFE1, 0x202425)
-    static let solid = color(0xFAFAFB, 0x202425)
-}
-
-@MainActor
-final class MaterialPanel: NSVisualEffectView {
-    private let tint = NSView()
-    private let panelRadius: CGFloat
-    init(cornerRadius: CGFloat = 12) {
-        panelRadius = cornerRadius
-        super.init(frame: .zero)
-        material = .popover
-        blendingMode = .withinWindow
-        state = .active
-        wantsLayer = true
-        layer?.cornerRadius = cornerRadius
-        layer?.masksToBounds = true
-        layer?.borderWidth = 0.5
-        tint.wantsLayer = true
-        tint.frame = bounds
-        tint.autoresizingMask = [.width, .height]
-        tint.setAccessibilityElement(false)
-        addSubview(tint)
-        updateSurface()
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateSurface()
-    }
-    private func updateSurface() {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        effectiveAppearance.performAsCurrentDrawingAppearance { layer?.borderColor = ViewerColors.stroke.cgColor }
-        tint.layer?.backgroundColor =
-            (dark
-            ? NSColor(srgbRed: 0.094, green: 0.106, blue: 0.11, alpha: 0.8)
-            : NSColor.white.withAlphaComponent(panelRadius == 18 ? 0.66 : 0.78)).cgColor
-    }
-}
-
-@MainActor
-class CapsuleButton: NSButton {
-    var badgeCount = 0 { didSet { needsDisplay = true } }
-    override func draw(_ dirtyRect: NSRect) {
-        // AppKit owns symbol sizing, orientation, focus, and mouse tracking.
-        super.draw(dirtyRect)
-        if badgeCount > 0 {
-            let badge = NSRect(
-                x: bounds.maxX - 14, y: isFlipped ? bounds.minY + 1 : bounds.maxY - 14, width: 13, height: 13)
-            ViewerColors.star.setFill()
-            NSBezierPath(ovalIn: badge).fill()
-            let number = NSAttributedString(
-                string: String(badgeCount),
-                attributes: [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .heavy), .foregroundColor: NSColor.black,
-                ])
-            number.draw(at: NSPoint(x: badge.midX - number.size().width / 2, y: badge.midY - number.size().height / 2))
-        }
-    }
-}
-
-@MainActor
 final class RatingChip: NSTextField {
     convenience init() {
         self.init(labelWithString: "")
         font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-        textColor = ViewerColors.primary
+        textColor = Theme.textPrimary
     }
     func setRating(_ value: Int?) {
         guard let value, (1...5).contains(value) else {
@@ -100,9 +21,9 @@ final class RatingChip: NSTextField {
             string: "★ \(value)",
             attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: ViewerColors.primary,
+                .foregroundColor: Theme.textPrimary,
             ])
-        text.addAttribute(.foregroundColor, value: ViewerColors.star, range: NSRange(location: 0, length: 1))
+        text.addAttribute(.foregroundColor, value: Theme.star, range: NSRange(location: 0, length: 1))
         attributedStringValue = text
         invalidateIntrinsicContentSize()
         let label = "\(value) \(value == 1 ? "star" : "stars")"
@@ -119,7 +40,7 @@ final class RatingChip: NSTextField {
         NSColor.labelColor.withAlphaComponent(0.05).setFill()
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
         path.fill()
-        ViewerColors.stroke.setStroke()
+        Theme.hairline.setStroke()
         path.lineWidth = 0.5
         path.stroke()
         let size = attributedStringValue.size()
@@ -147,13 +68,13 @@ final class BreadcrumbView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Current location")
-        symbol.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-        symbol.contentTintColor = ViewerColors.tertiary
+        symbol.image = Theme.symbol("folder", size: 12, weight: .regular)
+        symbol.contentTintColor = Theme.textTertiary
         symbol.setAccessibilityElement(false)
         folder.isBordered = false
-        folder.font = .systemFont(ofSize: 13)
+        folder.font = .systemFont(ofSize: 13, weight: .medium)
         folderLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        folderLabel.textColor = ViewerColors.primary
+        folderLabel.textColor = Theme.textPrimary
         folderLabel.lineBreakMode = .byTruncatingTail
         folder.lineBreakMode = .byTruncatingTail
         folder.target = self
@@ -161,16 +82,16 @@ final class BreadcrumbView: NSView {
         folder.toolTip = "Show gallery"
         filename.font = .systemFont(ofSize: 13, weight: .semibold)
         filename.lineBreakMode = .byTruncatingMiddle
-        filename.textColor = ViewerColors.primary
+        filename.textColor = Theme.textPrimary
         parent.font = .systemFont(ofSize: 13)
         parent.lineBreakMode = .byTruncatingTail
-        parent.textColor = ViewerColors.secondary
-        parentSlash.textColor = ViewerColors.tertiary
-        fileSlash.textColor = ViewerColors.tertiary
+        parent.textColor = Theme.textSecondary
+        parentSlash.textColor = Theme.textTertiary
+        fileSlash.textColor = Theme.textTertiary
         for child in [symbol, parent, parentSlash, folder, folderLabel, fileSlash, filename] {
             row.addArrangedSubview(child)
         }
-        row.spacing = 5
+        row.spacing = 7
         row.alignment = .centerY
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
@@ -200,7 +121,7 @@ final class BreadcrumbView: NSView {
         folderLabel.isHidden = !hasFolder || !gallery
         folder.title = authorizedFolder?.lastPathComponent ?? ""
         folderLabel.stringValue = folder.title
-        folder.contentTintColor = ViewerColors.secondary
+        folder.contentTintColor = Theme.textSecondary
         folder.setAccessibilityLabel("Show gallery, \(folder.title)")
         fileSlash.isHidden = !hasFolder || gallery || file == nil
         filename.isHidden = gallery || file == nil
@@ -302,7 +223,7 @@ final class ViewerBackground: NSView {
     }
     private func updateAppearance() {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        effectiveAppearance.performAsCurrentDrawingAppearance { layer?.backgroundColor = ViewerColors.wall.cgColor }
+        effectiveAppearance.performAsCurrentDrawingAppearance { layer?.backgroundColor = Theme.wall.cgColor }
         imageLayer.contents = dark ? images?.dark : images?.light
         let wash = dark ? NSColor.black : NSColor(srgbRed: 0.941, green: 0.945, blue: 0.953, alpha: 1)
         veil.colors = [
@@ -331,38 +252,5 @@ final class ThumbnailSizeSlider: NSSlider {
         doubleValue = galleryLayout.adjustedSize(doubleValue, steps: steps)
         sendAction(action, to: target)
         return true
-    }
-}
-
-@MainActor
-final class MetadataTextView: NSTextView {
-    var dividerLocations: [Int] = []
-    var ratingRange: NSRange?
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard let layoutManager, let textContainer else { return }
-        if let ratingRange, NSMaxRange(ratingRange) <= (string as NSString).length {
-            let glyphs = layoutManager.glyphRange(forCharacterRange: ratingRange, actualCharacterRange: nil)
-            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
-                .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y).insetBy(dx: -3, dy: -1)
-            let chip = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
-            NSColor.labelColor.withAlphaComponent(0.05).setFill()
-            chip.fill()
-            ViewerColors.stroke.setStroke()
-            chip.lineWidth = 0.5
-            chip.stroke()
-        }
-        ViewerColors.stroke.setStroke()
-        for location in dividerLocations where location < (string as NSString).length {
-            let glyphs = layoutManager.glyphRange(
-                forCharacterRange: NSRange(location: location, length: 1), actualCharacterRange: nil)
-            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
-            let y = rect.minY + textContainerOrigin.y - 8
-            let rule = NSBezierPath()
-            rule.lineWidth = 0.5
-            rule.move(to: NSPoint(x: textContainerInset.width, y: y))
-            rule.line(to: NSPoint(x: bounds.width - textContainerInset.width, y: y))
-            rule.stroke()
-        }
     }
 }

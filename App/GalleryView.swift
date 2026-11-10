@@ -6,8 +6,7 @@ import LuloImaging
 final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDelegate {
     private let collection = GalleryCollectionView()
     private let scroll = NSScrollView()
-    private let emptyState = NSStackView()
-    private let emptyDetail = NSTextField(wrappingLabelWithString: "")
+    private let emptyState = MessageView()
     private let heading = NSTextField(wrappingLabelWithString: "")
     private let count = NSTextField(labelWithString: "")
     private let poster = NSView()
@@ -15,7 +14,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
     private let caption = NSTextField(labelWithString: "")
     private let exposure = NSTextField(wrappingLabelWithString: "")
     private let posterRating = RatingChip()
-    private let viewButton = NSButton(title: "View", target: nil, action: nil)
+    private let viewButton = ProminentButton(title: "View", target: nil, action: nil)
     private let collectionLayout = GalleryCollectionLayout()
     private let loader: ThumbnailLoader
     private var entries: [ImageEntry] = []
@@ -53,7 +52,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         scroll.contentView.drawsBackground = false
         addSubview(scroll)
         heading.font = .systemFont(ofSize: 34, weight: .semibold)
-        heading.textColor = ViewerColors.primary
+        heading.textColor = Theme.textPrimary
         heading.lineBreakMode = .byTruncatingTail
         count.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         count.lineBreakMode = .byTruncatingTail
@@ -68,30 +67,22 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         posterImage.shadow?.shadowBlurRadius = 16
         posterImage.shadow?.shadowOffset = NSSize(width: 0, height: -8)
         caption.font = .systemFont(ofSize: 16, weight: .semibold)
-        caption.textColor = ViewerColors.primary
+        caption.textColor = Theme.textPrimary
         caption.lineBreakMode = .byTruncatingMiddle
-        exposure.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        viewButton.bezelStyle = .rounded
+        exposure.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        viewButton.setAccessibilityLabel("View image")
         viewButton.target = self
         viewButton.action = #selector(openPoster)
         for view in [posterImage, caption, exposure, posterRating, viewButton] { poster.addSubview(view) }
-        let title = NSTextField(wrappingLabelWithString: "No images match the current filters.")
-        title.font = .systemFont(ofSize: 34, weight: .bold)
-        title.textColor = ViewerColors.primary
-        let clear = NSButton(title: "Clear Filters", target: self, action: #selector(resetFilters))
-        emptyDetail.font = .systemFont(ofSize: 14)
-        emptyDetail.textColor = ViewerColors.secondary
-        emptyState.orientation = .vertical
-        emptyState.alignment = .leading
-        emptyState.spacing = 20
-        for view in [title, emptyDetail, clear] { emptyState.addArrangedSubview(view) }
+        emptyState.show("No images match the current filters.", detail: "", actionTitle: "Clear Filters") {
+            [weak self] in self?.clearFilters?()
+        }
         emptyState.translatesAutoresizingMaskIntoConstraints = false
         addSubview(emptyState)
         NSLayoutConstraint.activate([
             emptyState.centerXAnchor.constraint(equalTo: centerXAnchor),
             emptyState.centerYAnchor.constraint(equalTo: centerYAnchor),
             emptyState.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -56),
-            title.widthAnchor.constraint(lessThanOrEqualToConstant: 440),
         ])
     }
 
@@ -101,9 +92,16 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         super.layout()
         let compact = (window?.frame.width ?? bounds.width) < 900
         let side: CGFloat = compact ? 18 : 28
-        heading.font = .systemFont(
-            ofSize: presentation == .rows ? 34 : min(44, max(30, bounds.width * 0.035)),
-            weight: presentation == .rows ? .semibold : .bold)
+        emptyState.updateHeadlineSize()
+        let titleSize = presentation == .rows ? 34 : min(44, max(30, bounds.width * 0.031))
+        heading.font = .systemFont(ofSize: titleSize, weight: presentation == .rows ? .semibold : .bold)
+        heading.attributedStringValue = Theme.headline(
+            heading.stringValue, size: titleSize, weight: presentation == .rows ? .semibold : .bold,
+            tracking: presentation == .rows ? -0.035 : -0.022,
+            lineBreak: presentation == .rows ? .byTruncatingTail : .byWordWrapping)
+        count.font =
+            presentation == .rows
+            ? .monospacedDigitSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 14)
         if presentation == .rows {
             heading.frame = NSRect(
                 x: side, y: bounds.height - 68, width: max(1, bounds.width - side * 2 - 160), height: 46)
@@ -113,29 +111,33 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
                 x: side, y: 0, width: max(1, bounds.width - side * 2), height: max(1, bounds.height - 82))
         } else {
             let posterWidth: CGFloat = compact ? 300 : max(340, bounds.width * 0.4)
-            let titleWidth = posterWidth - 60
+            let leftInset: CGFloat = compact ? 22 : 32
+            let titleWidth = posterWidth - leftInset - 28
             let titleHeight = min(
-                104,
+                140,
                 max(
                     44,
                     heading.cell?.cellSize(
                         forBounds:
-                            NSRect(x: 0, y: 0, width: titleWidth, height: 104)
+                            NSRect(x: 0, y: 0, width: titleWidth, height: 140)
                     ).height ?? 44))
-            heading.frame = NSRect(x: 32, y: bounds.height - titleHeight - 10, width: titleWidth, height: titleHeight)
-            count.frame = NSRect(x: 32, y: heading.frame.minY - 26, width: titleWidth, height: 22)
+            heading.frame = NSRect(
+                x: leftInset, y: bounds.height - titleHeight - 10, width: titleWidth, height: titleHeight)
+            count.frame = NSRect(x: leftInset, y: heading.frame.minY - 30, width: titleWidth, height: 22)
             count.alignment = .left
-            poster.frame = NSRect(x: 32, y: 10, width: posterWidth - 60, height: max(1, count.frame.minY - 20))
-            let exposureWidth = max(1, poster.bounds.width - 74)
+            poster.frame = NSRect(x: leftInset, y: 10, width: titleWidth, height: max(1, count.frame.minY - 20))
+            let buttonSize = viewButton.intrinsicContentSize
+            let exposureWidth = max(1, poster.bounds.width - buttonSize.width - 16)
             let exposureHeight = ceil(
                 exposure.cell?.cellSize(
                     forBounds: NSRect(x: 0, y: 0, width: exposureWidth, height: .greatestFiniteMagnitude)
                 ).height ?? 16)
-            let metadataHeight = max(28, exposureHeight)
+            let metadataHeight = max(buttonSize.height, exposureHeight)
             exposure.frame = NSRect(
                 x: 0, y: (metadataHeight - exposureHeight) / 2, width: exposureWidth, height: exposureHeight)
             viewButton.frame = NSRect(
-                x: poster.bounds.width - 58, y: (metadataHeight - 28) / 2, width: 58, height: 28)
+                x: poster.bounds.width - buttonSize.width, y: (metadataHeight - buttonSize.height) / 2,
+                width: buttonSize.width, height: buttonSize.height)
             let ratingSize = posterRating.intrinsicContentSize
             let ratingWidth = posterRating.isHidden ? 0 : ratingSize.width + 8
             caption.frame = NSRect(
@@ -193,7 +195,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
             collectionLayout.invalidateLayout()
         }
         heading.stringValue = folderAccess.url.lastPathComponent
-        heading.maximumNumberOfLines = mode == .rows ? 1 : 2
+        heading.maximumNumberOfLines = mode == .rows ? 1 : 3
         heading.lineBreakMode = mode == .rows ? .byTruncatingTail : .byWordWrapping
         let number = entries.count == totalCount ? "\(totalCount) images" : "\(entries.count) of \(totalCount) images"
         count.stringValue =
@@ -201,9 +203,9 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
             ? number
             : number + (entries.count == totalCount ? "" : " shown") + ", sorted by "
                 + preferences.sort.rawValue.lowercased()
-        count.textColor = preferences.blurredBackground ? ViewerColors.primary : ViewerColors.secondary
+        count.textColor = preferences.blurredBackground ? Theme.textPrimary : Theme.textSecondary
         exposure.textColor = count.textColor
-        emptyDetail.stringValue = filterSummary
+        emptyState.detail.stringValue = filterSummary
         scroll.isHidden = entries.isEmpty
         emptyState.isHidden = !entries.isEmpty
         poster.isHidden = mode != .preview || entries.isEmpty
@@ -234,7 +236,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         needsLayout = true
         if let details {
             let fields = details.groups.first(where: { $0.name == "Exposure" })?.fields ?? []
-            let captured = details.entry.capturedAt.map { $0.formatted(date: .abbreviated, time: .shortened) }
+            let captured = details.entry.capturedAt.map(Theme.captureText)
             exposure.stringValue = [
                 captured, fields.first(where: { $0.name == "Exposure" })?.value,
                 fields.first(where: { $0.name == "ISO Speed Rating" }).map { "ISO \($0.value)" },
@@ -486,7 +488,7 @@ final class GalleryThumbnailView: NSImageView {
         let corner: CGFloat = presentation == .preview ? 10 : 3
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(roundedRect: tile, xRadius: corner, yRadius: corner).addClip()
-        ViewerColors.placeholder.setFill()
+        Theme.tilePlaceholder.setFill()
         tile.fill()
         image?.draw(
             in: displayedImageRect, from: .zero, operation: .sourceOver,
@@ -538,7 +540,7 @@ final class GalleryThumbnailView: NSImageView {
         }
         NSGraphicsContext.restoreGraphicsState()
         if selected {
-            ViewerColors.accent.setStroke()
+            Theme.accent.setStroke()
             let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: corner, yRadius: corner)
             outline.lineWidth = 2
             outline.stroke()
