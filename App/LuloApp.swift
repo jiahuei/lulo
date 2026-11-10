@@ -66,6 +66,10 @@ final class LuloApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         view.submenu?.addItem(withTitle: "as Rows", action: #selector(showRows), keyEquivalent: "1")
         view.submenu?.addItem(withTitle: "as Preview", action: #selector(showPreview), keyEquivalent: "2")
         view.submenu?.addItem(withTitle: "Larger Thumbnails", action: #selector(largerThumbnails), keyEquivalent: "+")
+        let largerWithoutShift = view.submenu?.addItem(
+            withTitle: "Larger Thumbnails", action: #selector(largerThumbnails), keyEquivalent: "=")
+        largerWithoutShift?.isHidden = true
+        largerWithoutShift?.allowsKeyEquivalentWhenHidden = true
         view.submenu?.addItem(withTitle: "Smaller Thumbnails", action: #selector(smallerThumbnails), keyEquivalent: "-")
         let blurred = view.submenu?.addItem(
             withTitle: "Blurred Background", action: #selector(toggleBlurredBackground), keyEquivalent: "b")

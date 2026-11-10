@@ -60,8 +60,8 @@ public struct Preferences: Equatable, Sendable {
         self.ascending = ascending
         self.blurredBackground = blurredBackground
         self.galleryLayout = galleryLayout
-        self.rowsTargetHeight = GalleryLayout.rows.clampedSize(rowsTargetHeight)
-        self.previewTileSize = GalleryLayout.preview.clampedSize(previewTileSize)
+        self.rowsTargetHeight = GalleryLayout.rows.snappedSize(rowsTargetHeight)
+        self.previewTileSize = GalleryLayout.preview.snappedSize(previewTileSize)
     }
 
     public init(defaults: UserDefaults) {
@@ -69,8 +69,8 @@ public struct Preferences: Equatable, Sendable {
         ascending = defaults.object(forKey: "sortAscending") as? Bool ?? true
         blurredBackground = defaults.bool(forKey: "blurredBackground")
         galleryLayout = defaults.string(forKey: "galleryLayout").flatMap(GalleryLayout.init(rawValue:)) ?? .rows
-        rowsTargetHeight = GalleryLayout.rows.clampedSize(defaults.object(forKey: "rowsTargetHeight") as? Double ?? 200)
-        previewTileSize = GalleryLayout.preview.clampedSize(
+        rowsTargetHeight = GalleryLayout.rows.snappedSize(defaults.object(forKey: "rowsTargetHeight") as? Double ?? 200)
+        previewTileSize = GalleryLayout.preview.snappedSize(
             defaults.object(forKey: "previewTileSize") as? Double ?? 128)
     }
 

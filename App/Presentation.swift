@@ -65,43 +65,9 @@ final class MaterialPanel: NSVisualEffectView {
 @MainActor
 class CapsuleButton: NSButton {
     var badgeCount = 0 { didSet { needsDisplay = true } }
-    private var hovered = false
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(
-            NSTrackingArea(
-                rect: .zero, options: [.activeInKeyWindow, .mouseEnteredAndExited, .inVisibleRect],
-                owner: self, userInfo: nil))
-    }
-    override func mouseEntered(with event: NSEvent) {
-        hovered = true
-        needsDisplay = true
-    }
-    override func mouseExited(with event: NSEvent) {
-        hovered = false
-        needsDisplay = true
-    }
     override func draw(_ dirtyRect: NSRect) {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let selected = state == .on
-        let fill =
-            selected
-            ? (dark ? NSColor.white.withAlphaComponent(0.92) : ViewerColors.primary)
-            : NSColor.labelColor.withAlphaComponent(hovered ? 0.05 : 0)
-        fill.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 0), xRadius: 9, yRadius: 9).fill()
-        let tint = selected ? (dark ? NSColor(calibratedWhite: 0.067, alpha: 1) : .white) : ViewerColors.secondary
-        if let image = image?.copy() as? NSImage {
-            image.lockFocus()
-            tint.setFill()
-            NSRect(origin: .zero, size: image.size).fill(using: .sourceAtop)
-            image.unlockFocus()
-            image.isTemplate = false
-            image.draw(
-                in: NSRect(x: bounds.midX - 9, y: bounds.midY - 9, width: 18, height: 18),
-                from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.32)
-        }
+        // AppKit owns symbol sizing, orientation, focus, and mouse tracking.
+        super.draw(dirtyRect)
         if badgeCount > 0 {
             let badge = NSRect(
                 x: bounds.maxX - 14, y: isFlipped ? bounds.minY + 1 : bounds.maxY - 14, width: 13, height: 13)
@@ -113,54 +79,6 @@ class CapsuleButton: NSButton {
                     .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .heavy), .foregroundColor: NSColor.black,
                 ])
             number.draw(at: NSPoint(x: badge.midX - number.size().width / 2, y: badge.midY - number.size().height / 2))
-        }
-        if window?.firstResponder === self {
-            ViewerColors.accent.setStroke()
-            let focus = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 9, yRadius: 9)
-            focus.lineWidth = 2
-            focus.stroke()
-        }
-    }
-}
-
-@MainActor
-final class CapsuleSegments: NSSegmentedControl {
-    override func draw(_ dirtyRect: NSRect) {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let width = bounds.width / CGFloat(segmentCount)
-        for index in 0..<segmentCount {
-            let rect = NSRect(x: CGFloat(index) * width, y: 0, width: width, height: bounds.height).insetBy(
-                dx: 1, dy: 0)
-            let selected = selectedSegment == index
-            if selected {
-                (dark ? NSColor.white.withAlphaComponent(0.92) : ViewerColors.primary).setFill()
-                NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9).fill()
-            }
-            let color: NSColor =
-                selected ? (dark ? NSColor(calibratedWhite: 0.067, alpha: 1) : .white) : ViewerColors.secondary
-            if let image = image(forSegment: index)?.copy() as? NSImage {
-                image.lockFocus()
-                color.setFill()
-                NSRect(origin: .zero, size: image.size).fill(using: .sourceAtop)
-                image.unlockFocus()
-                image.isTemplate = false
-                image.draw(
-                    in: NSRect(x: rect.midX - 8, y: rect.midY - 8, width: 16, height: 16),
-                    from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.32)
-            } else {
-                let text = NSAttributedString(
-                    string: label(forSegment: index) ?? "",
-                    attributes: [
-                        .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium), .foregroundColor: color,
-                    ])
-                text.draw(at: NSPoint(x: rect.midX - text.size().width / 2, y: rect.midY - text.size().height / 2))
-            }
-        }
-        if window?.firstResponder === self {
-            ViewerColors.accent.setStroke()
-            let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 9, yRadius: 9)
-            ring.lineWidth = 2
-            ring.stroke()
         }
     }
 }
@@ -186,21 +104,29 @@ final class RatingChip: NSTextField {
             ])
         text.addAttribute(.foregroundColor, value: ViewerColors.star, range: NSRange(location: 0, length: 1))
         attributedStringValue = text
+        invalidateIntrinsicContentSize()
         let label = "\(value) \(value == 1 ? "star" : "stars")"
         setAccessibilityLabel(label)
         toolTip = label
         isHidden = false
     }
+    override var intrinsicContentSize: NSSize {
+        let size = attributedStringValue.size()
+        return NSSize(width: size.width + 10, height: size.height + 6)
+    }
     override func draw(_ dirtyRect: NSRect) {
-        if !stringValue.isEmpty {
-            NSColor.labelColor.withAlphaComponent(0.05).setFill()
-            let path = NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5)
-            path.fill()
-            ViewerColors.stroke.setStroke()
-            path.lineWidth = 0.5
-            path.stroke()
-        }
-        super.draw(dirtyRect)
+        guard !stringValue.isEmpty else { return }
+        NSColor.labelColor.withAlphaComponent(0.05).setFill()
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
+        path.fill()
+        ViewerColors.stroke.setStroke()
+        path.lineWidth = 0.5
+        path.stroke()
+        let size = attributedStringValue.size()
+        attributedStringValue.draw(
+            in: NSRect(
+                x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
+                width: size.width, height: size.height))
     }
 }
 
@@ -283,26 +209,6 @@ final class BreadcrumbView: NSView {
         setAccessibilityValue(toolTip)
     }
     @objc private func openGallery() { showGallery?() }
-}
-
-@MainActor
-func refreshWheel() -> NSImage {
-    let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
-        let alphas: [Double] = [1, 0.88, 0.76, 0.64, 0.52, 0.42, 0.34, 0.26]
-        for index in 0..<8 {
-            let angle = .pi / 2 - Double(index) * .pi / 4
-            NSColor.black.withAlphaComponent(alphas[index]).setStroke()
-            let path = NSBezierPath()
-            path.lineWidth = 2.1
-            path.lineCapStyle = .round
-            path.move(to: NSPoint(x: 9 + cos(angle) * 4.6, y: 9 + sin(angle) * 4.6))
-            path.line(to: NSPoint(x: 9 + cos(angle) * 9, y: 9 + sin(angle) * 9))
-            path.stroke()
-        }
-        return true
-    }
-    image.isTemplate = true
-    return image
 }
 
 struct BackgroundImages: @unchecked Sendable {
@@ -409,17 +315,22 @@ final class ViewerBackground: NSView {
 
 @MainActor
 final class ThumbnailSizeSlider: NSSlider {
-    var step = 10.0
-    var keyboardAdjustment = false
+    var galleryLayout = GalleryLayout.rows
     override func keyDown(with event: NSEvent) {
-        guard event.keyCode == 123 || event.keyCode == 124 else {
-            super.keyDown(with: event)
-            return
+        switch event.keyCode {
+        case 123, 125: adjust(-1)
+        case 124, 126: adjust(1)
+        default: super.keyDown(with: event)
         }
-        keyboardAdjustment = true
-        doubleValue = min(maxValue, max(minValue, doubleValue + (event.keyCode == 124 ? step : -step)))
+    }
+    override func accessibilityPerformIncrement() -> Bool { adjust(1) }
+    override func accessibilityPerformDecrement() -> Bool { adjust(-1) }
+    @discardableResult
+    private func adjust(_ steps: Int) -> Bool {
+        guard isEnabled else { return false }
+        doubleValue = galleryLayout.adjustedSize(doubleValue, steps: steps)
         sendAction(action, to: target)
-        keyboardAdjustment = false
+        return true
     }
 }
 

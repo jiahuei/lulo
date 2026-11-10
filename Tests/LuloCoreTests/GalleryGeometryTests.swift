@@ -90,3 +90,44 @@ func presentationPreferencesRoundTrip() throws {
     #expect(recovered.galleryLayout == .rows)
     #expect(recovered.rowsTargetHeight == 120 && recovered.previewTileSize == 220)
 }
+
+/// Ensures rows choose the nearer break and the final partial row is no taller than its neighbor.
+@Test
+func rowsTrackTargetHeightWithoutTallFinalRow() {
+    for ratio in [1.5, 2.0 / 3] {
+        let geometry = GalleryGeometry(
+            aspectRatios: Array(repeating: ratio, count: 10), width: 944, targetSize: 200, layout: .rows)
+        let firstRow = geometry.frames.filter { $0.minY == 0 }
+        let count = firstRow.count
+        let height = firstRow[0].height
+        for alternative in [count - 1, count + 1] where alternative > 0 {
+            let alternativeHeight = (944 - Double(alternative - 1) * 6) / (Double(alternative) * ratio)
+            #expect(abs(height - 200) <= abs(alternativeHeight - 200))
+        }
+        let last = geometry.frames.last!
+        let previous = geometry.frames.last { $0.minY < last.minY }!
+        #expect(last.height <= previous.height && last.height <= 200)
+    }
+}
+
+/// Ensures mouse values, persisted sizes, keys and two-step buttons share one grid, including endpoints.
+@Test
+func thumbnailSizesDoNotDriftAtEndpoints() {
+    for layout in GalleryLayout.allCases {
+        let values = layout.sizes
+        #expect(values.first == layout.sizeRange.lowerBound)
+        #expect(values.last == layout.sizeRange.upperBound)
+        #expect(values.contains(layout.defaultSize))
+        for (index, value) in values.enumerated() {
+            #expect(layout.snappedSize(value) == value)
+            #expect(layout.adjustedSize(value, steps: 1) == values[min(index + 1, values.count - 1)])
+            #expect(layout.adjustedSize(value, steps: -1) == values[max(index - 1, 0)])
+            #expect(layout.adjustedSize(value, steps: 2) == values[min(index + 2, values.count - 1)])
+        }
+        #expect(layout.snappedSize(.nan) == layout.defaultSize)
+    }
+    #expect(Preferences(previewTileSize: 94).previewTileSize == 92)
+    let grid = GalleryGeometry(aspectRatios: [1, 1, 1, 1], width: 300, targetSize: 128, layout: .preview)
+    #expect(grid.frames[1].minX - grid.frames[0].maxX == 6)
+    #expect(grid.frames[2].minY - grid.frames[0].maxY == 6)
+}

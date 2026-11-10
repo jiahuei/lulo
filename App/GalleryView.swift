@@ -101,6 +101,9 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         super.layout()
         let compact = (window?.frame.width ?? bounds.width) < 900
         let side: CGFloat = compact ? 18 : 28
+        heading.font = .systemFont(
+            ofSize: presentation == .rows ? 34 : min(44, max(30, bounds.width * 0.035)),
+            weight: presentation == .rows ? .semibold : .bold)
         if presentation == .rows {
             heading.frame = NSRect(
                 x: side, y: bounds.height - 68, width: max(1, bounds.width - side * 2 - 160), height: 46)
@@ -130,8 +133,12 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
                 x: 0, y: poster.bounds.height - imageHeight,
                 width: poster.bounds.width, height: imageHeight)
             let captionY = posterImage.frame.minY - 30
-            caption.frame = NSRect(x: 0, y: captionY, width: max(1, poster.bounds.width - 48), height: 24)
-            posterRating.frame = NSRect(x: poster.bounds.width - 43, y: captionY + 3, width: 40, height: 19)
+            let ratingSize = posterRating.intrinsicContentSize
+            let ratingWidth = posterRating.isHidden ? 0 : ratingSize.width + 8
+            caption.frame = NSRect(x: 0, y: captionY, width: max(1, poster.bounds.width - ratingWidth), height: 24)
+            posterRating.frame = NSRect(
+                x: poster.bounds.width - ratingSize.width, y: caption.frame.midY - ratingSize.height / 2,
+                width: ratingSize.width, height: ratingSize.height)
             exposure.frame = NSRect(x: 0, y: captionY - 54, width: max(1, poster.bounds.width - 60), height: 52)
             viewButton.frame = NSRect(x: poster.bounds.width - 58, y: captionY - 40, width: 58, height: 28)
             scroll.frame = NSRect(
@@ -177,9 +184,6 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
             collectionLayout.invalidateLayout()
         }
         heading.stringValue = folderAccess.url.lastPathComponent
-        heading.font = .systemFont(
-            ofSize: mode == .rows ? 34 : min(44, max(30, bounds.width * 0.035)),
-            weight: mode == .rows ? .semibold : .bold)
         heading.maximumNumberOfLines = mode == .rows ? 1 : 2
         heading.lineBreakMode = mode == .rows ? .byTruncatingTail : .byWordWrapping
         let number = entries.count == totalCount ? "\(totalCount) images" : "\(entries.count) of \(totalCount) images"
@@ -220,10 +224,13 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         posterImage.setAccessibilityLabel(caption.stringValue)
         needsLayout = true
         if let details {
-            let fields = Dictionary(uniqueKeysWithValues: details.groups.flatMap(\.fields).map { ($0.name, $0.value) })
+            let fields = details.groups.first(where: { $0.name == "Exposure" })?.fields ?? []
             let captured = details.entry.capturedAt.map { $0.formatted(date: .abbreviated, time: .shortened) }
-            exposure.stringValue = [captured, fields["Exposure"], fields["ISO Speed Rating"].map { "ISO \($0)" }]
-                .compactMap { $0 }.joined(separator: ", ")
+            exposure.stringValue = [
+                captured, fields.first(where: { $0.name == "Exposure" })?.value,
+                fields.first(where: { $0.name == "ISO Speed Rating" }).map { "ISO \($0.value)" },
+            ]
+            .compactMap { $0 }.joined(separator: ", ")
         }
     }
 
@@ -415,6 +422,7 @@ private final class GalleryItem: NSCollectionViewItem {
         cancelThumbnail()
         url = nil
         preview.rating = nil
+        preview.resetHover()
     }
 }
 
@@ -426,13 +434,20 @@ final class GalleryThumbnailView: NSImageView {
     var presentation = GalleryLayout.rows { didSet { needsDisplay = true } }
     var selected = false { didSet { needsDisplay = true } }
     private var hovered = false
+    private var hoverTrackingArea: NSTrackingArea?
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(
-            NSTrackingArea(
+        if hoverTrackingArea == nil {
+            let area = NSTrackingArea(
                 rect: .zero, options: [.activeInKeyWindow, .mouseEnteredAndExited, .inVisibleRect], owner: self,
-                userInfo: nil))
+                userInfo: nil)
+            hoverTrackingArea = area
+            addTrackingArea(area)
+        }
+    }
+    func resetHover() {
+        hovered = false
+        needsDisplay = true
     }
     override func mouseEntered(with event: NSEvent) {
         hovered = true
@@ -454,7 +469,7 @@ final class GalleryThumbnailView: NSImageView {
             x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
     }
     override func draw(_ dirtyRect: NSRect) {
-        let inset: CGFloat = presentation == .preview ? 3 : 0
+        let inset: CGFloat = presentation == .preview ? 1 : 0
         let tile = bounds.insetBy(dx: inset, dy: inset)
         let corner: CGFloat = presentation == .preview ? 10 : 3
         NSGraphicsContext.saveGraphicsState()

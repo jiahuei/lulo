@@ -12,6 +12,28 @@ public enum GalleryLayout: String, CaseIterable, Sendable {
         guard value.isFinite else { return defaultSize }
         return min(sizeRange.upperBound, max(sizeRange.lowerBound, value))
     }
+    /// The endpoints remain reachable; interior values share the default's step grid.
+    public var sizes: [Double] {
+        let first = Int(ceil((sizeRange.lowerBound - defaultSize) / sizeStep))
+        let last = Int(floor((sizeRange.upperBound - defaultSize) / sizeStep))
+        return Array(
+            Set(
+                [sizeRange.lowerBound, sizeRange.upperBound]
+                    + (first...last).map { defaultSize + Double($0) * sizeStep })
+        ).sorted()
+    }
+
+    public func snappedSize(_ value: Double) -> Double {
+        let value = clampedSize(value)
+        return sizes.min { abs($0 - value) < abs($1 - value) } ?? defaultSize
+    }
+
+    public func adjustedSize(_ value: Double, steps: Int) -> Double {
+        let values = sizes
+        let index = values.firstIndex(of: snappedSize(value)) ?? 0
+        return values[min(values.count - 1, max(0, index + steps))]
+    }
+
 }
 
 /// Geometry shared by collection layout and vertical keyboard navigation, in top-left coordinates.
@@ -25,28 +47,35 @@ public struct GalleryGeometry: Sendable {
         var frames: [CGRect] = []
         var y = 0.0
         if layout == .preview {
-            let columns = max(1, Int((width + 10) / (target + 10)))
-            let side = (width - Double(columns - 1) * 10) / Double(columns)
+            let columns = max(1, Int((width + 6) / (target + 6)))
+            let side = (width - Double(columns - 1) * 6) / Double(columns)
             for index in aspectRatios.indices {
                 frames.append(
                     CGRect(
-                        x: Double(index % columns) * (side + 10),
-                        y: Double(index / columns) * (side + 10), width: side, height: side))
+                        x: Double(index % columns) * (side + 6),
+                        y: Double(index / columns) * (side + 6), width: side, height: side))
             }
             y = Double(frames.last?.maxY ?? 0)
         } else {
             let ratios = aspectRatios.map { $0.isFinite && $0 > 0 ? $0 : 1.5 }
             var start = 0
+            var previousHeight = target
             while start < ratios.count {
                 var end = start
                 var sum = ratios[start]
-                while end + 1 < ratios.count && sum * target + Double(end - start) * 6 < width {
+                var fitted = width / sum
+                while end + 1 < ratios.count && fitted > target {
+                    let nextSum = sum + ratios[end + 1]
+                    let nextHeight = max(1, width - Double(end - start + 1) * 6) / nextSum
+                    // Choose the break closest to the requested height instead of always overflowing.
+                    if abs(fitted - target) <= abs(nextHeight - target) { break }
                     end += 1
-                    sum += ratios[end]
+                    sum = nextSum
+                    fitted = nextHeight
                 }
-                let fitted = max(1, width - Double(end - start) * 6) / sum
-                // The final row may shrink to fit, but must never stretch beyond the target.
-                let rowHeight = end == ratios.count - 1 ? min(target, fitted) : fitted
+                // A short final row should not tower over the adjacent full row.
+                let rowHeight = end == ratios.count - 1 ? min(target, previousHeight, fitted) : fitted
+                previousHeight = rowHeight
                 var x = 0.0
                 for index in start...end {
                     let tileWidth = ratios[index] * rowHeight

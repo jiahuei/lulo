@@ -10,6 +10,7 @@ final class ImageCanvas: NSView {
             setAccessibilityElement(image != nil)
             hideLoading()
             needsDisplay = true
+            zoomChanged?()
         }
     }
     private let messageTitle = NSTextField(wrappingLabelWithString: "")
@@ -20,7 +21,7 @@ final class ImageCanvas: NSView {
     private let loadingFilename = NSTextField(labelWithString: "")
     private let messageStack = NSStackView()
     private var messageAction: (() -> Void)?
-    var zoom = ZoomState()
+    var zoom = ZoomState() { didSet { zoomChanged?() } }
     var modeChanged: ((ViewingMode) -> Void)?
     var navigate: ((Int) -> Void)?
     var zoomChanged: (() -> Void)?
@@ -157,16 +158,18 @@ final class ImageCanvas: NSView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         needsDisplay = true
+        zoomChanged?()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         needsDisplay = true
+        zoomChanged?()
     }
 
     private var scale: Double {
         guard let image else { return 1 }
-        let backing = convertToBacking(NSSize(width: max(1, bounds.width - 60), height: max(1, bounds.height - 60)))
+        let backing = convertToBacking(NSSize(width: max(1, bounds.width - 16), height: max(1, bounds.height - 16)))
         return zoom.effectiveScale(
             pixelWidth: Double(image.width), pixelHeight: Double(image.height),
             viewportWidth: backing.width, viewportHeight: backing.height, backingScale: 1)
@@ -185,28 +188,11 @@ final class ImageCanvas: NSView {
         guard let image, let context = NSGraphicsContext.current?.cgContext else { return }
         let rect = displayedImageRect
         context.interpolationQuality = scale >= 1 ? .none : .high
-        // Draw only the shadow outside the photo; an opaque shadow backing would turn
-        // transparent PNG pixels black and drawing the image twice would change their alpha.
-        context.saveGState()
-        context.addRect(bounds.insetBy(dx: -120, dy: -120))
-        context.addRect(rect)
-        context.clip(using: .evenOdd)
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        context.setShadow(
-            offset: CGSize(width: 0, height: -20), blur: dark ? 90 : 60,
-            color: NSColor.black.withAlphaComponent(dark ? 0.85 : 0.42).cgColor)
-        context.draw(image, in: rect)
-        context.setShadow(
-            offset: CGSize(width: 0, height: -1), blur: dark ? 8 : 3,
-            color: NSColor.black.withAlphaComponent(dark ? 0.5 : 0.14).cgColor)
-        context.draw(image, in: rect)
-        context.restoreGState()
         context.saveGState()
         context.addPath(CGPath(roundedRect: rect, cornerWidth: 3, cornerHeight: 3, transform: nil))
         context.clip()
         context.draw(image, in: rect)
         context.restoreGState()
-        zoomChanged?()
     }
 
     var zoomDescription: String {

@@ -48,6 +48,7 @@ enum RenderPreviews {
         settle()
         try verifyTransparentCanvas(window)
         try verifyDisplayToggle(viewer)
+        try verifyReviewRegressions(viewer)
         try capture(window, to: output.appendingPathComponent("image-light.png"))
         viewer.toggleSidebar()
         settle()
@@ -111,6 +112,65 @@ enum RenderPreviews {
         try verifyTrashAction(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures native click states, unobscured layout, larger fit images, and painting without status mutations.
+    private static func verifyReviewRegressions(_ viewer: ViewerController) throws {
+        guard let window = viewer.window, let root = window.contentView,
+            let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
+            let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds)
+        else { throw PreviewError.captureFailed }
+        for identifier in ["Metadata", "Blurred Background"] {
+            guard let button = toolbarControl(window, identifier) as? NSButton else { throw PreviewError.captureFailed }
+            let initial = button.state
+            for _ in 0..<3 {
+                button.performClick(nil)
+                guard button.state != initial, !button.isHighlighted else { throw PreviewError.captureFailed }
+                button.performClick(nil)
+                guard button.state == initial, !button.isHighlighted else { throw PreviewError.captureFailed }
+            }
+        }
+        let callback = canvas.zoomChanged
+        var updates = 0
+        canvas.zoomChanged = {
+            updates += 1
+            callback?()
+        }
+        defer { canvas.zoomChanged = callback }
+        canvas.resetZoom()
+        guard updates > 0 else { throw PreviewError.displayToggleFailed }
+        updates = 0
+        canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
+        guard updates == 0 else { throw PreviewError.displayToggleFailed }
+        let rect = canvas.displayedImageRect
+        guard abs(min(rect.minX, rect.minY) - 8) < 1 else { throw PreviewError.clippedCanvas }
+        window.toolbar?.isVisible = false
+        settle()
+        let top = root.convert(canvas.bounds, from: canvas).maxY
+        guard abs(top - root.safeAreaRect.maxY) < 1 else { throw PreviewError.clippedCanvas }
+        window.toolbar?.isVisible = true
+        settle()
+
+        let tile = GalleryThumbnailView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        tile.image = NSImage(cgImage: canvas.image!, size: .zero)
+        tile.presentation = .preview
+        let area = NSTrackingArea(
+            rect: tile.bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: tile, userInfo: nil)
+        tile.addTrackingArea(area)
+        tile.updateTrackingAreas()
+        guard tile.trackingAreas.contains(area) else { throw PreviewError.galleryFailed }
+        let original = tile.displayedImageRect
+        guard
+            let event = NSEvent.mouseEvent(
+                with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                context: nil, eventNumber: 0, clickCount: 0, pressure: 0)
+        else { throw PreviewError.galleryFailed }
+        tile.mouseEntered(with: event)
+        tile.resetHover()
+        guard tile.displayedImageRect == original else { throw PreviewError.galleryFailed }
+        print(
+            "Verified native toggle release, safe-area layout, 8-point fit inset, pure canvas painting, and hover reset."
+        )
     }
 
     /// Ensures photo shadows do not add an opaque backing beneath transparent source pixels.
@@ -471,6 +531,15 @@ enum RenderPreviews {
                     slider.accessibilityLabel() == (preview ? "Thumbnail size" : "Row height")
                 else { throw PreviewError.galleryFailed }
                 let before = slider.doubleValue
+                let mode = preview ? GalleryLayout.preview : .rows
+                slider.doubleValue = mode.sizeRange.lowerBound
+                slider.sendAction(slider.action, to: slider.target)
+                guard slider.accessibilityPerformIncrement(),
+                    slider.doubleValue == mode.adjustedSize(mode.sizeRange.lowerBound, steps: 1),
+                    slider.accessibilityPerformDecrement(), slider.doubleValue == mode.sizeRange.lowerBound
+                else { throw PreviewError.galleryFailed }
+                slider.doubleValue = before
+                slider.sendAction(slider.action, to: slider.target)
                 guard
                     let arrow = NSEvent.keyEvent(
                         with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
@@ -498,6 +567,15 @@ enum RenderPreviews {
                     })
                 else {
                     throw PreviewError.galleryFailed
+                }
+                if preview {
+                    let chips = descendants(gallery).compactMap { $0 as? RatingChip }.filter { !$0.isHidden }
+                    guard let chip = chips.first,
+                        let caption = descendants(gallery).compactMap({ $0 as? NSTextField })
+                            .first(where: { $0.stringValue == "photo1.png" && $0.superview === chip.superview }),
+                        abs(chip.frame.midY - caption.frame.midY) < 0.5,
+                        abs(chip.bounds.width - chip.intrinsicContentSize.width) < 0.5
+                    else { throw PreviewError.galleryRatingPlacementFailed }
                 }
                 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                     window.appearance = NSAppearance(named: appearance)

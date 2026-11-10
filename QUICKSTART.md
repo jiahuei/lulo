@@ -111,3 +111,7 @@ Documentation checks run on pushes to every branch. macOS checks and app packagi
 The repository foundation is adapted from [Talking Clock PR #1](https://github.com/jiahuei/ios-talking-clock/pull/1), using the reference repository's [main-branch files at `71a1f23`](https://github.com/jiahuei/ios-talking-clock/tree/71a1f23c251bbd288e1184a27950563daad53fbd). No image-viewer reference application code is included.
 
 The D9 presentation checks cover oriented justified Rows, a square Preview grid and selected-image poster, per-layout sizes, breadcrumb authorization, checkbox badges, numbered ratings, blurred backgrounds and compact layouts. Captures are visual evidence; the D9 section of the interactive checklist remains required for VoiceOver, motion preferences and visual fidelity.
+
+## Canvas drawing performance
+
+After packaging, `bash tools/benchmark-canvas.sh` compares the actual canvas from pre-review PR revision `75ef7bc` with the current canvas, using the authorized full-resolution photo and the same Release modules on one Mac. An optional first argument selects another D9 baseline revision. It measures fit and zoom/pan painting into 1200-by-800-point bitmap contexts at 1x and 2x, discards one warm-up, and prints all 20 samples, median and maximum. Decoding, fixture setup, window-server composition and input latency are excluded. CI runs this comparison; there is no machine-dependent timing gate. Interactive navigation remains a separate check.

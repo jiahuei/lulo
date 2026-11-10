@@ -13,9 +13,9 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private var galleryVisible = false
     private let metadata = MetadataTextView()
     private let sidebar = NSScrollView()
-    private let display = CapsuleSegments()
-    private let sorting = CapsuleSegments()
-    private let direction = CapsuleSegments()
+    private let display = NSSegmentedControl()
+    private let sorting = NSSegmentedControl()
+    private let direction = NSSegmentedControl()
     private var ratingButtons: [NSButton] = []
     private var formatButtons: [NSButton] = []
     private let info = CapsuleButton()
@@ -34,12 +34,12 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private let background = ViewerBackground()
     private let backgroundRenderer = BackgroundRenderer()
     private let blurred = CapsuleButton()
-    private let galleryLayout = CapsuleSegments()
+    private let galleryLayout = NSSegmentedControl()
     private let sizeSlider = ThumbnailSizeSlider()
     private let smaller = CapsuleButton()
     private let larger = CapsuleButton()
     private let refreshSpinner = NSProgressIndicator()
-    private let refreshGlyph = refreshWheel()
+    private let refreshGlyph = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")
     private var sliderWidth: NSLayoutConstraint?
     private var breadcrumbWidth: NSLayoutConstraint?
     private var thumbnailTask: Task<Void, Never>?
@@ -108,6 +108,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private func segments(_ control: NSSegmentedControl, title: String, values: [String], action: Selector) {
         control.segmentCount = values.count
         control.trackingMode = .selectOne
+        control.segmentStyle = .rounded
         for (index, value) in values.enumerated() {
             control.setLabel(value, forSegment: index)
             control.setToolTip(value, forSegment: index)
@@ -172,6 +173,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         configureButton(larger, title: "Larger thumbnails", symbol: "square", action: #selector(largerThumbnails))
         galleryLayout.segmentCount = 2
         galleryLayout.trackingMode = .selectOne
+        galleryLayout.segmentStyle = .texturedRounded
         galleryLayout.setImage(
             NSImage(systemSymbolName: "rectangle.grid.1x2", accessibilityDescription: "Rows"), forSegment: 0)
         galleryLayout.setImage(
@@ -272,7 +274,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
             root.addSubview(view)
         }
         NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: root.topAnchor, constant: 56),
+            content.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
             content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             content.bottomAnchor.constraint(equalTo: footer.topAnchor),
@@ -319,7 +321,9 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         button.imagePosition = .imageOnly
         button.bezelStyle = .texturedRounded
-        button.isBordered = false
+        button.isBordered = true
+        button.setButtonType(.momentaryPushIn)
+        button.imageScaling = .scaleProportionallyDown
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: 32).isActive = true
         button.heightAnchor.constraint(equalToConstant: 28).isActive = true
@@ -976,20 +980,16 @@ extension ViewerController {
     }
     @objc func largerThumbnails() { changeThumbnailSize(2) }
     @objc func smallerThumbnails() { changeThumbnailSize(-2) }
-    private func changeThumbnailSize(_ steps: Double) {
+    private func changeThumbnailSize(_ steps: Int) {
         guard galleryVisible else { return }
         let mode = session.preferences.galleryLayout
-        saveThumbnailSize(mode.clampedSize(sizeSlider.doubleValue + steps * mode.sizeStep))
+        saveThumbnailSize(mode.adjustedSize(sizeSlider.doubleValue, steps: steps))
     }
     @objc private func thumbnailSizeChanged() {
-        let mode = session.preferences.galleryLayout
-        let value =
-            sizeSlider.keyboardAdjustment
-            ? sizeSlider.doubleValue
-            : mode.defaultSize + ((sizeSlider.doubleValue - mode.defaultSize) / mode.sizeStep).rounded() * mode.sizeStep
-        saveThumbnailSize(mode.clampedSize(value))
+        saveThumbnailSize(sizeSlider.doubleValue)
     }
     private func saveThumbnailSize(_ value: Double) {
+        let value = session.preferences.galleryLayout.snappedSize(value)
         if session.preferences.galleryLayout == .rows {
             session.preferences.rowsTargetHeight = value
         } else {
@@ -1014,7 +1014,7 @@ extension ViewerController {
         sliderWidth?.constant = width < 900 ? 64 : 92
         let mode = session.preferences.galleryLayout
         galleryLayout.selectedSegment = mode == .rows ? 0 : 1
-        sizeSlider.step = mode.sizeStep
+        sizeSlider.galleryLayout = mode
         sizeSlider.minValue = mode.sizeRange.lowerBound
         sizeSlider.maxValue = mode.sizeRange.upperBound
         sizeSlider.doubleValue =
@@ -1030,8 +1030,12 @@ extension ViewerController {
         breadcrumb.update(
             file: session.selectedURL ?? openedURL, authorizedFolder: folderAccess?.url,
             gallery: galleryVisible, windowWidth: width)
-        // Leave a compressible title region; all four capsules stay reachable at 720 pt.
-        let controlsWidth: CGFloat = galleryVisible ? (width < 900 ? 530 : 622) : 450
+        let items = window?.toolbar?.items ?? []
+        let groups = items.filter {
+            ["Files", "Navigation", "Display", "Actions"].contains($0.itemIdentifier.rawValue)
+        }
+        let controlsWidth = groups.reduce(CGFloat.zero) { $0 + ($1.view?.fittingSize.width ?? 0) }
+        // Reserve the native traffic-light area and item spacing; measure the actual controls.
         breadcrumbWidth?.constant = max(40, width - controlsWidth - 120)
     }
 

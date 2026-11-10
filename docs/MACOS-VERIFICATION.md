@@ -50,3 +50,12 @@ No interactive verification has yet been recorded in this repository.
 - [ ] Inspect the 300-point floating metadata panel, filename/capture/rating header, Dimensions, Date Time Captured, Date Time Modified and Attribution last. Confirm the image area shrinks and metadata never overlays the photo.
 - [ ] Inspect loading over bright images, initial empty, corrupt-image error and no-match states in both appearances. Trash remains a native confirmation sheet with Cancel as default and source bytes unchanged after cancellation.
 - [ ] Exercise keyboard focus and VoiceOver across all capsules, layout/zoom radio segments, breadcrumb, slider, tiles and View button. Check selection, disabled and hover colors, image inset/shadows, and gallery scrolling at the 120-point Rows minimum.
+
+## PR 17 review regressions
+
+- Verify the larger image with an eight-point fit inset, including transparent PNGs; pan and scroll-zoom a large photo and compare responsiveness with the earlier PR build.
+- Click, hold, release outside, and rapidly repeat toolbar actions. Icons must remain upright and sharp at 1x/2x; momentary buttons must release, and toggles must reflect the actual state. Check disabled segments and keyboard focus.
+- Hide/show the toolbar and enter/exit full screen. Content must follow the available area without a fixed titlebar gap.
+- Check Preview's tighter grid, centered numbered rating chips, and resizing of the folder heading. Scroll under a stationary pointer and check that reused tiles do not retain hover styling.
+- Compare Rows with landscape and portrait images: complete rows stay near the target and the final row does not become taller than the preceding row.
+- At both size limits, compare mouse dragging, all four slider arrows, VoiceOver increment/decrement, buttons, Command-plus / Command-equals, and Command-minus. Their values must agree and selection must stay visible.
