@@ -12,6 +12,7 @@ final class ToolbarButton: NSButton {
     }
     var minimumWidth: CGFloat = 32 { didSet { invalidateIntrinsicContentSize() } }
     private var hovering = false { didSet { needsDisplay = true } }
+    private var kind = NSButton.ButtonType.momentaryPushIn
 
     override var state: NSControl.StateValue { didSet { needsDisplay = true } }
     override var isEnabled: Bool { didSet { needsDisplay = true } }
@@ -21,6 +22,7 @@ final class ToolbarButton: NSButton {
         target: AnyObject?, action: Selector?
     ) {
         self.init(frame: .zero)
+        kind = type
         setButtonType(type)
         isBordered = false
         self.title = title
@@ -33,6 +35,24 @@ final class ToolbarButton: NSButton {
     func setLabel(_ label: String) {
         toolTip = label
         setAccessibilityLabel(label)
+    }
+
+    // A borderless, custom-drawn button reports an unknown role, so the role and on/off value are explicit:
+    // segments are radio choices and toggles are toggle buttons, as with the native controls they replace.
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        switch kind {
+        case .radio: return .radioButton
+        case .pushOnPushOff, .toggle: return .checkBox
+        default: return .button
+        }
+    }
+
+    override func accessibilitySubrole() -> NSAccessibility.Subrole? {
+        kind == .pushOnPushOff || kind == .toggle ? .toggle : super.accessibilitySubrole()
+    }
+
+    override func accessibilityValue() -> Any? {
+        kind == .momentaryPushIn ? super.accessibilityValue() : NSNumber(value: state == .on)
     }
 
     override var intrinsicContentSize: NSSize {

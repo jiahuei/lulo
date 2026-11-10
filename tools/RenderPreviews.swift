@@ -104,6 +104,11 @@ enum RenderPreviews {
             FileHandle.standardError.write(Data(state.utf8))
             throw PreviewError.displayToggleFailed(line: #line)
         }
+        // Custom-drawn capsule buttons keep native semantics: buttons, toggles, and radio choices with a value.
+        guard toolbarButton(window, "Sort & Filter")?.accessibilityRole() == .button,
+            toolbarButton(window, "Blurred Background")?.accessibilitySubrole() == .toggle,
+            fit.accessibilityValue() as? NSNumber == 1, actual.accessibilityValue() as? NSNumber == 0
+        else { throw PreviewError.displayToggleFailed(line: #line) }
         for (button, expected) in [(actual, ViewingMode.actualSize), (actual, .actualSize), (fit, .fit), (fit, .fit)] {
             canvas.zoom.scroll(up: true, currentScale: 2)
             button.performClick(nil)
