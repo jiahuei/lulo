@@ -149,8 +149,9 @@ enum RenderPreviews {
                 NSGraphicsContext.restoreGraphicsState()
                 guard let image = context.makeImage(),
                     let center = NSBitmapImageRep(cgImage: image).colorAt(x: 500 * scale, y: 350 * scale),
-                    center.alphaComponent > 0.1
-                else { throw PreviewError.clippedCanvas }
+                    // A subpixel image can cover far less than one raster pixel.
+                    center.alphaComponent > 0
+                else { throw PreviewError.smallImageFailed(mode: mode, scale: scale, rect: rect) }
             }
         }
         print("Verified tiny-icon, thin-panorama and minimum-zoom canvas painting at 1x/2x raster scales.")
@@ -1517,6 +1518,7 @@ enum RenderPreviews {
 
     private enum PreviewError: Error {
         case displayToggleFailed
+        case smallImageFailed(mode: String, scale: Int, rect: CGRect)
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
         case galleryFailed(line: Int)
         case galleryRatingPlacementFailed
