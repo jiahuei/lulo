@@ -754,12 +754,12 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         }
         guard refreshTimer == nil else { return }
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
             // Installed on the main run loop below; keep animating during native event tracking.
             MainActor.assumeIsolated {
-                guard let self else {
-                    timer.invalidate()
-                    return
-                }
                 if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                     self.updateRefreshAnimation()
                     return
