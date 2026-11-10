@@ -91,6 +91,10 @@ The comparison compiles the base revision's actual package sources in a temporar
 
 For interactive checks, use the PR app with a folder of large photos. Try paced next/previous navigation, rapid repeats/reversals, metadata-visible navigation, sorting/filter changes, external file replacement/deletion, and opening another file during a load. Confirm the final selection, full-resolution zoom, and sandbox behavior on your laptop.
 
+## Canvas drawing performance
+
+After packaging, `bash tools/benchmark-canvas.sh origin/main` compares the baseline and current canvas sources, using the same full-resolution photo and Release modules on one Mac. Omit the revision to measure only the current canvas. It measures fit and zoom/pan painting into 1200-by-800-point bitmap contexts at 1x and 2x, in light and dark appearances, discards one warm-up, and prints all 20 samples, median and maximum in milliseconds. Fit painting includes the photo shadow. Decoding, fixture setup, window-server composition and input latency are excluded. CI compares against each PR's base commit; there is no machine-dependent timing gate.
+
 ## Documentation checks
 
 Use Node.js 24, matching `.github/workflows/lint.yml`. The pinned Prettier command needs npm registry access unless cached.
