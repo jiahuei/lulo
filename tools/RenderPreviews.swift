@@ -515,7 +515,7 @@ enum RenderPreviews {
         print("Verified Trash confirmation, cancellation, failure, next selection, last image, and stale completion.")
     }
 
-    /// Ensures D9 layouts preserve selection, retain reachable controls at 720 pt, and render both backgrounds.
+    /// Ensures D9 layouts preserve selection, toolbar order, and caption alignment down to 720 pt.
     private static func verifyD9Gallery(_ viewer: ViewerController, output: URL) throws {
         guard let window = viewer.window, let root = window.contentView,
             let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
@@ -561,11 +561,10 @@ enum RenderPreviews {
                 slider.doubleValue = before
                 slider.sendAction(slider.action, to: slider.target)
                 guard abs(root.bounds.width - width) < 0.5 else { throw PreviewError.galleryFailed(line: #line) }
-                let required = ["Files", "Navigation", "Display", "Actions"]
+                let required = ["Display", "Navigation", "Files", "Actions"]
                 guard
-                    required.allSatisfy({ name in
-                        window.toolbar?.visibleItems?.contains { $0.itemIdentifier.rawValue == name } == true
-                    })
+                    window.toolbar?.visibleItems?.map({ $0.itemIdentifier.rawValue })
+                        .filter({ required.contains($0) }) == required
                 else {
                     let widths =
                         window.toolbar?.items.map {
@@ -582,6 +581,15 @@ enum RenderPreviews {
                         abs(chip.frame.midY - caption.frame.midY) < 0.5,
                         abs(chip.bounds.width - chip.intrinsicContentSize.width) < 0.5
                     else { throw PreviewError.galleryRatingPlacementFailed }
+                    guard let poster = caption.superview,
+                        let metadata = poster.subviews.compactMap({ $0 as? NSTextField })
+                            .first(where: { $0 !== caption && !($0 is RatingChip) }),
+                        let viewButton = poster.subviews.compactMap({ $0 as? NSButton }).first,
+                        abs(metadata.frame.midY - viewButton.frame.midY) < 0.5,
+                        metadata.frame.maxX + 16 <= viewButton.frame.minX,
+                        max(metadata.frame.maxY, viewButton.frame.maxY) < caption.frame.minY,
+                        min(metadata.frame.minY, viewButton.frame.minY) == 0
+                    else { throw PreviewError.galleryFailed(line: #line) }
                 }
                 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                     window.appearance = NSAppearance(named: appearance)

@@ -1107,7 +1107,7 @@ extension ViewerController {
 
 extension ViewerController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.init("Breadcrumb"), .flexibleSpace, .init("Files"), .init("Navigation"), .init("Display"), .init("Actions")]
+        [.init("Breadcrumb"), .flexibleSpace, .init("Display"), .init("Navigation"), .init("Files"), .init("Actions")]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)

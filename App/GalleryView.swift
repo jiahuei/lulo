@@ -126,21 +126,30 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
             count.frame = NSRect(x: 32, y: heading.frame.minY - 26, width: titleWidth, height: 22)
             count.alignment = .left
             poster.frame = NSRect(x: 32, y: 10, width: posterWidth - 60, height: max(1, count.frame.minY - 20))
-            let availableHeight = max(1, poster.bounds.height - 86)
-            let sourceSize = posterImage.image?.size ?? NSSize(width: 3, height: 2)
-            let imageHeight = min(availableHeight, poster.bounds.width * sourceSize.height / max(1, sourceSize.width))
-            posterImage.frame = NSRect(
-                x: 0, y: 86 + (availableHeight - imageHeight) / 2,
-                width: poster.bounds.width, height: imageHeight)
-            let captionY: CGFloat = 56
+            let exposureWidth = max(1, poster.bounds.width - 74)
+            let exposureHeight = ceil(
+                exposure.cell?.cellSize(
+                    forBounds: NSRect(x: 0, y: 0, width: exposureWidth, height: .greatestFiniteMagnitude)
+                ).height ?? 16)
+            let metadataHeight = max(28, exposureHeight)
+            exposure.frame = NSRect(
+                x: 0, y: (metadataHeight - exposureHeight) / 2, width: exposureWidth, height: exposureHeight)
+            viewButton.frame = NSRect(
+                x: poster.bounds.width - 58, y: (metadataHeight - 28) / 2, width: 58, height: 28)
             let ratingSize = posterRating.intrinsicContentSize
             let ratingWidth = posterRating.isHidden ? 0 : ratingSize.width + 8
-            caption.frame = NSRect(x: 0, y: captionY, width: max(1, poster.bounds.width - ratingWidth), height: 24)
+            caption.frame = NSRect(
+                x: 0, y: metadataHeight + 4, width: max(1, poster.bounds.width - ratingWidth), height: 24)
             posterRating.frame = NSRect(
                 x: poster.bounds.width - ratingSize.width, y: caption.frame.midY - ratingSize.height / 2,
                 width: ratingSize.width, height: ratingSize.height)
-            exposure.frame = NSRect(x: 0, y: captionY - 54, width: max(1, poster.bounds.width - 60), height: 52)
-            viewButton.frame = NSRect(x: poster.bounds.width - 58, y: captionY - 40, width: 58, height: 28)
+            let imageBottom = caption.frame.maxY + 16
+            let availableHeight = max(1, poster.bounds.height - imageBottom)
+            let sourceSize = posterImage.image?.size ?? NSSize(width: 3, height: 2)
+            let imageHeight = min(availableHeight, poster.bounds.width * sourceSize.height / max(1, sourceSize.width))
+            posterImage.frame = NSRect(
+                x: 0, y: imageBottom + (availableHeight - imageHeight) / 2,
+                width: poster.bounds.width, height: imageHeight)
             scroll.frame = NSRect(
                 x: posterWidth + 8, y: 0, width: max(1, bounds.width - posterWidth - 30),
                 height: max(1, bounds.height - 10))
@@ -235,7 +244,10 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
     }
 
     func previewFailed() {
-        if posterImage.image == nil { exposure.stringValue = "Preview unavailable" }
+        if posterImage.image == nil {
+            exposure.stringValue = "Preview unavailable"
+            needsLayout = true
+        }
     }
 
     func focusSelection() {
