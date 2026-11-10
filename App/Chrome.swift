@@ -1,4 +1,5 @@
 import AppKit
+import LuloImaging
 
 /// `Pictures / [2025] Japan / DSCF2137-LR.jpg`. Only the authorized folder and its parent's name are shown;
 /// the parent is display-only because Lulo cannot open folders it was not granted.
@@ -98,7 +99,7 @@ final class BackdropView: NSView {
     private let images = [CoverImageView(), CoverImageView()]
     private let veil = VeilView()
     private var front = 0
-    private(set) var image: CGImage?
+    private(set) var image: Backdrop?
     private(set) var isBlurred = false
 
     override init(frame: NSRect) {
@@ -123,8 +124,8 @@ final class BackdropView: NSView {
     }
 
     /// Crossfades to a new blurred image; an unchanged image is left alone so redundant updates do not flash.
-    func show(_ image: CGImage?, animated: Bool) {
-        guard image !== self.image else { return }
+    func show(_ image: Backdrop?, animated: Bool) {
+        guard image?.light !== self.image?.light else { return }
         self.image = image
         // The lower view stays opaque: the upper one fades in over it, or fades out to reveal the new image.
         front = 1 - front
@@ -152,13 +153,19 @@ func pin(_ view: NSView, in container: NSView, insets: NSEdgeInsets = NSEdgeInse
     ])
 }
 
-/// Draws an image scaled to cover its bounds at 115%, like the background's oversized blur.
+/// Draws the appearance's background variant scaled to cover its bounds at 115%, like D9's oversized blur.
 @MainActor
 private final class CoverImageView: NSView {
-    var image: CGImage? { didSet { needsDisplay = true } }
+    var image: Backdrop? { didSet { needsDisplay = true } }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let image, let context = NSGraphicsContext.current?.cgContext else { return }
+        guard let backdrop = image, let context = NSGraphicsContext.current?.cgContext else { return }
+        let image = Theme.isDark(effectiveAppearance) ? backdrop.dark : backdrop.light
         let scale = max(bounds.width / CGFloat(image.width), bounds.height / CGFloat(image.height)) * 1.15
         let size = NSSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
         context.interpolationQuality = .high
@@ -170,7 +177,7 @@ private final class CoverImageView: NSView {
     }
 }
 
-/// Light mode lifts the blur under a pale veil; dark mode darkens it (brightness 0.55) with a vignette and wash.
+/// Light mode puts the blur under a pale veil; dark mode adds a vignette and wash over its darker variant.
 @MainActor
 private final class VeilView: NSView {
     override func viewDidChangeEffectiveAppearance() {
@@ -186,8 +193,6 @@ private final class VeilView: NSView {
                 .draw(in: bounds, angle: -90)
             return
         }
-        NSColor.black.withAlphaComponent(0.45).setFill()
-        bounds.fill()
         // An elliptical vignette (120% by 90% radii, centred 40% from the top) darkening to 35% at its edge.
         if let gradient = CGGradient(
             colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),

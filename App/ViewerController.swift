@@ -31,7 +31,7 @@ final class ViewerController: NSWindowController {
     private let layoutDivider = HairlineDivider()
     private let smallerButton = ToolbarButton(
         symbol: "square.grid.3x3", label: "Smaller thumbnails", target: nil, action: nil)
-    private let sizeSlider = NSSlider()
+    private let sizeSlider = ThumbnailSizeSlider()
     private let largerButton = ToolbarButton(symbol: "square", label: "Larger thumbnails", target: nil, action: nil)
     private let backgroundDivider = HairlineDivider()
     private let blurButton = ToolbarButton(
@@ -778,13 +778,24 @@ final class ViewerController: NSWindowController {
         let animate = manualRefresh && !Theme.reduceMotion
         if animate, refreshTimer == nil {
             // Eight steps per 0.8-second turn, like a spinning progress indicator.
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] timer in
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    guard let self else {
+                        timer.invalidate()
+                        return
+                    }
+                    // Reduce Motion can be turned on mid-refresh; the next tick stops the wheel.
+                    if Theme.reduceMotion {
+                        self.updateRefreshIndicator()
+                        return
+                    }
                     self.refreshPhase = (self.refreshPhase + 1) % 8
                     self.refresh.glyph = Theme.refreshGlyph(phase: self.refreshPhase)
                 }
             }
+            // Common modes keep the wheel turning while a menu or slider is tracking the pointer.
+            RunLoop.main.add(timer, forMode: .common)
+            refreshTimer = timer
         } else if !animate, refreshTimer != nil {
             refreshTimer?.invalidate()
             refreshTimer = nil
@@ -830,7 +841,7 @@ final class ViewerController: NSWindowController {
         let loader = thumbnails
         let generation = thumbnailGeneration
         backdropTask = Task { [weak self] in
-            let image = try? await loader.backdrop(at: url, access: access, generation: generation).image
+            let image = try? await loader.backdrop(at: url, access: access, generation: generation)
             guard !Task.isCancelled, let self, self.backdropURL == url else { return }
             self.backdrop.show(image, animated: true)
         }
@@ -919,7 +930,7 @@ final class ViewerController: NSWindowController {
     private func stepThumbnailSize(_ steps: Int) {
         guard galleryVisible else { return }
         let layout = session.preferences.galleryLayout
-        setThumbnailSize(session.preferences.thumbnailSize(for: layout) + Double(steps) * layout.sizeStep)
+        setThumbnailSize(layout.adjustedSize(session.preferences.thumbnailSize(for: layout), steps: steps))
     }
 
     @objc private func sizeSliderChanged() { setThumbnailSize(sizeSlider.doubleValue) }
@@ -936,6 +947,7 @@ final class ViewerController: NSWindowController {
         let size = session.preferences.thumbnailSize(for: layout)
         rowsButton.state = layout == .rows ? .on : .off
         previewButton.state = layout == .preview ? .on : .off
+        sizeSlider.layout = layout
         sizeSlider.minValue = layout.sizeRange.lowerBound
         sizeSlider.maxValue = layout.sizeRange.upperBound
         sizeSlider.doubleValue = size
@@ -1006,6 +1018,14 @@ final class ViewerController: NSWindowController {
 
 extension ViewerController: NSWindowDelegate {
     func windowDidResize(_ notification: Notification) { updateChrome() }
+
+    /// Sheet completion handlers can run while `attachedSheet` is still set, leaving Refresh and Trash disabled.
+    func windowDidEndSheet(_ notification: Notification) { updateStatus() }
+
+    func windowWillClose(_ notification: Notification) {
+        manualRefresh = false
+        updateRefreshIndicator()
+    }
 }
 
 extension NSToolbarItem.Identifier {

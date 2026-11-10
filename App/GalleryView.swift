@@ -448,6 +448,7 @@ final class GalleryThumbnailView: NSImageView {
     var isSelected = false { didSet { needsDisplay = true } }
     var showsCaption = false { didSet { needsDisplay = true } }
     private(set) var isHovered = false
+    private var hoverArea: NSTrackingArea?
     var hoverChanged: (() -> Void)?
 
     override var image: NSImage? { didSet { needsDisplay = true } }
@@ -459,13 +460,15 @@ final class GalleryThumbnailView: NSImageView {
             ? bounds.insetBy(dx: GalleryTileLayout.previewOutset, dy: GalleryTileLayout.previewOutset) : bounds
     }
 
+    // Only the hover area is managed here; AppKit may install its own areas, such as for tooltips.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(
-            NSTrackingArea(
-                rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self,
-                userInfo: nil))
+        guard hoverArea == nil else { return }
+        let area = NSTrackingArea(
+            rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self,
+            userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
     }
 
     override func mouseEntered(with event: NSEvent) { setHovered(true) }

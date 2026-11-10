@@ -65,12 +65,26 @@ public enum GalleryLayout: String, CaseIterable, Sendable {
     public var sizeStep: Double { self == .rows ? 10 : 6 }
     public var defaultSize: Double { self == .rows ? 200 : 128 }
 
-    /// Snaps a size to this layout's slider steps within its range.
+    /// Every selectable size, ascending. Steps are counted from the default because Preview's default (128) is
+    /// not a multiple of 6 from 88; both ends of the range are added so they stay reachable.
+    public var sizes: [Double] {
+        let first = Int(((sizeRange.lowerBound - defaultSize) / sizeStep).rounded(.up))
+        let last = Int(((sizeRange.upperBound - defaultSize) / sizeStep).rounded(.down))
+        let steps = (first...last).map { defaultSize + Double($0) * sizeStep }
+        return Array(Set([sizeRange.lowerBound, sizeRange.upperBound] + steps)).sorted()
+    }
+
+    /// Snaps a size to the nearest selectable size within this layout's range.
     public func clampedSize(_ size: Double) -> Double {
         guard size.isFinite else { return defaultSize }
-        // Steps are counted from the default because Preview's default (128) is not a multiple of 6 from 88.
-        let steps = ((size - defaultSize) / sizeStep).rounded()
-        return min(sizeRange.upperBound, max(sizeRange.lowerBound, defaultSize + steps * sizeStep))
+        return sizes.min { abs($0 - size) < abs($1 - size) } ?? defaultSize
+    }
+
+    /// The selectable size the given number of steps away, stopping at either end of the range.
+    public func adjustedSize(_ size: Double, steps: Int) -> Double {
+        let values = sizes
+        let index = values.firstIndex(of: clampedSize(size)) ?? 0
+        return values[min(values.count - 1, max(0, index + steps))]
     }
 }
 

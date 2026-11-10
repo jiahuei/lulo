@@ -1,4 +1,5 @@
 import AppKit
+import LuloCore
 
 /// An icon or short-text button for toolbar capsules and segmented choices, using D9's inverted "on" state.
 /// Radio-type buttons are announced as radio choices with their selected state.
@@ -12,10 +13,12 @@ final class ToolbarButton: NSButton {
     }
     var minimumWidth: CGFloat = 32 { didSet { invalidateIntrinsicContentSize() } }
     private var hovering = false { didSet { needsDisplay = true } }
+    private var hoverArea: NSTrackingArea?
     private var kind = NSButton.ButtonType.momentaryPushIn
 
     override var state: NSControl.StateValue { didSet { needsDisplay = true } }
     override var isEnabled: Bool { didSet { needsDisplay = true } }
+    override var isHighlighted: Bool { didSet { needsDisplay = true } }
 
     convenience init(
         symbol: String? = nil, title: String = "", label: String, type: NSButton.ButtonType = .momentaryPushIn,
@@ -70,19 +73,20 @@ final class ToolbarButton: NSButton {
     }
 
     private var contentColor: NSColor {
-        state == .on ? Theme.onText : hovering && isEnabled ? Theme.textPrimary : Theme.textSecondary
+        state == .on ? Theme.onText : (hovering || isHighlighted) && isEnabled ? Theme.textPrimary : Theme.textSecondary
     }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
         defer { context.restoreGState() }
-        context.setAlpha(isEnabled ? 1 : 0.32)
+        // A pressed button dims, so a click shows feedback even on a button that is already "on".
+        context.setAlpha(isEnabled ? (isHighlighted ? 0.7 : 1) : 0.32)
         let shape = NSBezierPath(roundedRect: bounds, xRadius: 9, yRadius: 9)
         if state == .on {
             Theme.onFill.setFill()
             shape.fill()
-        } else if hovering && isEnabled {
+        } else if (hovering || isHighlighted) && isEnabled {
             Theme.hoverFill.setFill()
             shape.fill()
         }
@@ -104,17 +108,45 @@ final class ToolbarButton: NSButton {
 
     override var focusRingMaskBounds: NSRect { bounds }
 
+    // Only this button's own area is managed; NSButton keeps any tracking areas AppKit installs.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(
-            NSTrackingArea(
-                rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self,
-                userInfo: nil))
+        guard hoverArea == nil else { return }
+        let area = NSTrackingArea(
+            rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self,
+            userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
     }
 
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
+}
+
+/// The gallery size slider. Arrow keys and VoiceOver step through the layout's selectable sizes;
+/// NSSlider's own increment ignores them and can be smaller than half a step, which snapping would undo.
+@MainActor
+final class ThumbnailSizeSlider: NSSlider {
+    var layout = GalleryLayout.rows
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 123, 125: step(-1)  // left, down
+        case 124, 126: step(1)  // right, up
+        default: super.keyDown(with: event)
+        }
+    }
+
+    override func accessibilityPerformIncrement() -> Bool { step(1) }
+    override func accessibilityPerformDecrement() -> Bool { step(-1) }
+
+    @discardableResult
+    private func step(_ steps: Int) -> Bool {
+        guard isEnabled else { return false }
+        doubleValue = layout.adjustedSize(doubleValue, steps: steps)
+        sendAction(action, to: target)
+        return true
+    }
 }
 
 /// A rounded translucent group of toolbar controls; it never overlaps the image, so a plain fill matches a blur.

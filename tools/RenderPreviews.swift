@@ -382,7 +382,7 @@ enum RenderPreviews {
         let viewer = ViewerController(moveToTrash: { try await operation.move($0, access: $1) })
         guard let window = viewer.window, let content = window.contentView,
             let canvas = descendants(content).compactMap({ $0 as? ImageCanvas }).first,
-            let trash = toolbarButton(window, "Move to Trash")
+            let trash = toolbarButton(window, "Move to Trash"), let refresh = toolbarButton(window, "Refresh (⌘R)")
         else { throw PreviewError.trashFailed(line: #line) }
         defer { window.close() }
         func waitUntil(_ ready: () -> Bool) throws {
@@ -419,7 +419,8 @@ enum RenderPreviews {
         guard let sheet = window.attachedSheet else { throw PreviewError.trashFailed(line: #line) }
         try capture(sheet, to: output.appendingPathComponent("trash-confirmation.png"))
         try clickSheetButton("Cancel")
-        guard operation.pendingURL == nil, viewer.canTrashCurrentImage,
+        // The buttons themselves re-enable once the sheet has gone, not only the underlying conditions.
+        guard operation.pendingURL == nil, viewer.canTrashCurrentImage, trash.isEnabled, refresh.isEnabled,
             FileManager.default.fileExists(atPath: first.path)
         else { throw PreviewError.trashFailed(line: #line) }
 
@@ -1124,6 +1125,19 @@ enum RenderPreviews {
         for _ in 0..<20 { smaller.performClick(nil) }
         guard Preferences(defaults: .standard).thumbnailSize(for: .rows) == 120, !smaller.isEnabled, larger.isEnabled
         else { throw PreviewError.sizeFailed(line: #line) }
+        // Arrow keys and VoiceOver increments move one size step, which NSSlider's own increment would not.
+        guard slider.accessibilityPerformIncrement(), slider.doubleValue == 130,
+            Preferences(defaults: .standard).thumbnailSize(for: .rows) == 130
+        else { throw PreviewError.sizeFailed(line: #line) }
+        guard
+            let left = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 123)
+        else { throw PreviewError.sizeFailed(line: #line) }
+        slider.keyDown(with: left)
+        guard slider.doubleValue == 120, Preferences(defaults: .standard).thumbnailSize(for: .rows) == 120 else {
+            throw PreviewError.sizeFailed(line: #line)
+        }
         slider.doubleValue = 203
         slider.sendAction(slider.action, to: slider.target)
         guard Preferences(defaults: .standard).thumbnailSize(for: .rows) == 200, slider.doubleValue == 200 else {

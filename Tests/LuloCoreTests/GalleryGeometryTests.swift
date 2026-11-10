@@ -23,7 +23,6 @@ func justifiedRowsFillWidthAndKeepLastRow() {
         if offset < rows.count - 1 {
             // A complete row is scaled so its tiles and gaps end exactly at the content width.
             #expect(abs((tiles.map(\.maxX).max() ?? 0) - 600) < 0.0001)
-            #expect(tiles.allSatisfy { $0.height <= 200 })
         } else {
             #expect(tiles.allSatisfy { $0.height == 200 })
             #expect((tiles.map(\.maxX).max() ?? 0) < 600)
@@ -33,6 +32,19 @@ func justifiedRowsFillWidthAndKeepLastRow() {
     #expect(rows[1].key == frames[0].maxY + 6)
     // Order is preserved left to right within each row.
     for row in rows { #expect(row.value.map { frames[$0].minX } == row.value.map { frames[$0].minX }.sorted()) }
+}
+
+/// Ensures a row breaks where its height is closest to the target, even when that leaves it slightly taller.
+@Test
+func justifiedRowsBreakNearestTarget() {
+    // Two 1.4 images fill 600 points at about 212; adding the 3.0 panorama would shrink the row to about 101.
+    let frames = GalleryGeometry.justifiedRows(
+        aspectRatios: [1.4, 1.4, 3.0], width: 600, targetHeight: 200, spacing: 6)
+    #expect(frames.map(\.minY) == [0, 0, frames[0].maxY + 6])
+    #expect(abs(frames[0].height - 594 / 2.8) < 0.0001)
+    #expect(abs(frames[1].maxX - 600) < 0.0001)
+    // The panorama alone fills the width at exactly the target height.
+    #expect(abs(frames[2].height - 200) < 0.0001 && abs(frames[2].width - 600) < 0.0001)
 }
 
 /// Ensures a single image wider than the content shrinks to fit rather than overflowing the row.
@@ -81,4 +93,22 @@ func gallerySizesSnapToSteps(_ layout: GalleryLayout) {
     let nearlyOneStep = layout.defaultSize + layout.sizeStep * 0.6
     #expect(layout.clampedSize(nearlyOneStep) == layout.defaultSize + layout.sizeStep)
     #expect(layout.sizeRange == (layout == .rows ? 120...300 : 88...220))
+    // Both ends of the range are selectable, and stepping stops there.
+    let sizes = layout.sizes
+    #expect(sizes.first == layout.sizeRange.lowerBound && sizes.last == layout.sizeRange.upperBound)
+    #expect(sizes.contains(layout.defaultSize))
+    #expect(layout.adjustedSize(layout.defaultSize, steps: 1) == layout.defaultSize + layout.sizeStep)
+    #expect(layout.adjustedSize(layout.sizeRange.upperBound, steps: 1) == layout.sizeRange.upperBound)
+    #expect(layout.adjustedSize(layout.sizeRange.lowerBound, steps: -3) == layout.sizeRange.lowerBound)
+    #expect(layout.adjustedSize(layout.sizeRange.upperBound, steps: -1) == sizes[sizes.count - 2])
+}
+
+/// Ensures Preview's off-grid range ends (88 and 220) sit beside the 6-point steps counted from its default.
+@Test
+func previewSizesIncludeRangeEnds() {
+    let sizes = GalleryLayout.preview.sizes
+    #expect(Array(sizes.prefix(3)) == [88, 92, 98])
+    #expect(Array(sizes.suffix(3)) == [212, 218, 220])
+    #expect(GalleryLayout.preview.clampedSize(219.5) == 220)
+    #expect(GalleryLayout.rows.sizes == Array(stride(from: 120.0, through: 300, by: 10)))
 }

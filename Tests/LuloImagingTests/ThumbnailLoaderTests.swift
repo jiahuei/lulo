@@ -152,7 +152,8 @@ func cancelledThumbnailPreservesRefresh() async throws {
     #expect(retained.image === refreshed.image)
 }
 
-/// Ensures the background image is a small blurred copy that reuses the cached thumbnail instead of decoding again.
+/// Ensures the background images are small blurred copies that reuse the cached thumbnail instead of decoding again,
+/// with the dark variant darker than the light one. (Saturated fixture colours clip, so only the order is checked.)
 @Test
 func backdropReusesCachedThumbnail() async throws {
     let folder = try thumbnailTestFolder()
@@ -166,6 +167,29 @@ func backdropReusesCachedThumbnail() async throws {
     let backdrop = try await loader.backdrop(at: url, access: access)
     #expect(await loader.cachedBytes == cached)
     #expect(try await loader.load(at: url, access: access).image === thumbnail.image)
-    #expect(abs(max(backdrop.image.width, backdrop.image.height) - 64) <= 1)
-    #expect(backdrop.image.height > backdrop.image.width)
+    for image in [backdrop.light, backdrop.dark] {
+        #expect(abs(max(image.width, image.height) - 64) <= 1)
+        #expect(image.height > image.width)
+    }
+    #expect(try meanLuminance(backdrop.dark) < meanLuminance(backdrop.light))
+}
+
+/// The average of the red, green and blue channels over every pixel, from 0 to 1.
+private func meanLuminance(_ image: CGImage) throws -> Double {
+    let width = image.width
+    let height = image.height
+    var pixels = [UInt8](repeating: 0, count: width * height * 4)
+    let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+        guard
+            let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return false }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return true
+    }
+    try #require(drawn)
+    let channels = stride(from: 0, to: pixels.count, by: 4).flatMap { pixels[$0..<$0 + 3] }
+    return Double(channels.reduce(0) { $0 + Int($1) }) / Double(channels.count * 255)
 }

@@ -8,35 +8,38 @@ import Foundation
 /// Tile frames for the gallery layouts, in a top-down coordinate space starting at the content origin.
 public enum GalleryGeometry {
     /// Fills each row exactly by scaling images at their own aspect ratios; the last row keeps the target height.
+    /// Each row breaks where its height comes closest to the target, so a row can be slightly taller than the
+    /// target rather than always shrinking to take one more image.
     public static func justifiedRows(
         aspectRatios: [Double], width: Double, targetHeight: Double, spacing: Double
     ) -> [CGRect] {
-        var frames = [CGRect](repeating: .zero, count: aspectRatios.count)
-        var row: [Int] = []
-        var rowAspect = 0.0
+        var frames: [CGRect] = []
+        frames.reserveCapacity(aspectRatios.count)
+        var start = 0
         var y = 0.0
-        func place(height: Double) {
+        while start < aspectRatios.count {
+            var end = start
+            var rowAspect = aspectRatios[start]
+            var height = max(1, width) / rowAspect
+            while end + 1 < aspectRatios.count, height > targetHeight {
+                let nextAspect = rowAspect + aspectRatios[end + 1]
+                let nextHeight = max(1, width - spacing * Double(end - start + 1)) / nextAspect
+                if abs(height - targetHeight) <= abs(nextHeight - targetHeight) { break }
+                end += 1
+                rowAspect = nextAspect
+                height = nextHeight
+            }
+            // An incomplete last row would be enlarged past the target if stretched, so it stays left-aligned.
+            if end == aspectRatios.count - 1, height > targetHeight { height = targetHeight }
             var x = 0.0
-            for index in row {
+            for index in start...end {
                 let tileWidth = aspectRatios[index] * height
-                frames[index] = CGRect(x: x, y: y, width: tileWidth, height: height)
+                frames.append(CGRect(x: x, y: y, width: tileWidth, height: height))
                 x += tileWidth + spacing
             }
+            y += height + spacing
+            start = end + 1
         }
-        for index in aspectRatios.indices {
-            row.append(index)
-            rowAspect += aspectRatios[index]
-            let available = max(1, width - spacing * Double(row.count - 1))
-            if rowAspect * targetHeight >= available {
-                let height = available / rowAspect
-                place(height: height)
-                y += height + spacing
-                row = []
-                rowAspect = 0
-            }
-        }
-        // An incomplete last row would be enlarged past the target if stretched, so it stays left-aligned.
-        place(height: targetHeight)
         return frames
     }
 
