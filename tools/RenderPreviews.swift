@@ -1254,7 +1254,8 @@ enum RenderPreviews {
 
     private enum PreviewError: Error {
         case displayToggleFailed
-        case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover, galleryFailed
+        case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
+        case galleryFailed(line: Int)
         case galleryRatingPlacementFailed
         case trashFailed
         case refreshFailed(line: Int)
