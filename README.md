@@ -24,3 +24,5 @@ Development previews are available through the **Lulo test build** download comm
 Open an image from Finder or **File > Open**. Allow access to its folder to browse neighboring images, or cancel to view just that image.
 
 For building, testing, and contributing, see the [development guide](QUICKSTART.md).
+
+The D9 interface adds a folder breadcrumb, capsule controls, Rows and Preview gallery layouts with saved sizes, a floating metadata panel, numbered ratings and an optional image-derived blurred background.

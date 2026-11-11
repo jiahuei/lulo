@@ -6,23 +6,22 @@ final class ImageCanvas: NSView {
     var image: CGImage? {
         didSet {
             if image != nil { zoom.nextImage() }
-            messageStack.isHidden = image != nil
+            message.isHidden = image != nil
             setAccessibilityElement(image != nil)
             hideLoading()
             needsDisplay = true
+            zoomChanged?()
         }
     }
-    private let messageTitle = NSTextField(labelWithString: "")
-    private let messageDetail = NSTextField(wrappingLabelWithString: "")
-    private let messageButton = NSButton()
+    let message = MessageView()
     private let progress = NSProgressIndicator()
-    private let loadingBox = NSVisualEffectView()
+    /// Solid rather than translucent so the filename reads over bright images.
+    let loadingBox = PanelView(fill: Theme.solidPanel, radius: 14)
     private let loadingFilename = NSTextField(labelWithString: "")
-    private let messageStack = NSStackView()
-    private var messageAction: (() -> Void)?
-    var zoom = ZoomState()
+    var zoom = ZoomState() { didSet { zoomChanged?() } }
     var modeChanged: ((ViewingMode) -> Void)?
     var navigate: ((Int) -> Void)?
+    var zoomChanged: (() -> Void)?
     private var dragOrigin: CGPoint?
     private(set) var isLoading = false
 
@@ -31,41 +30,22 @@ final class ImageCanvas: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityRole(.image)
-        messageTitle.font = .systemFont(ofSize: 24, weight: .semibold)
-        messageTitle.alignment = .center
-        messageDetail.font = .systemFont(ofSize: 13)
-        messageDetail.textColor = .secondaryLabelColor
-        messageDetail.alignment = .center
-        messageButton.bezelStyle = .rounded
-        messageButton.target = self
-        messageButton.action = #selector(performMessageAction)
         progress.style = .spinning
         progress.controlSize = .small
         progress.isDisplayedWhenStopped = false
         progress.setAccessibilityLabel("Loading image")
-        messageStack.orientation = .vertical
-        messageStack.alignment = .centerX
-        messageStack.spacing = 12
-        for view in [messageTitle, messageDetail, messageButton] { messageStack.addArrangedSubview(view) }
-        messageStack.setCustomSpacing(20, after: messageDetail)
-        messageStack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(messageStack)
+        message.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(message)
+        // A left-aligned block, centred as a whole in the content area.
         NSLayoutConstraint.activate([
-            messageStack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            messageStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            messageStack.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
-            messageStack.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
-            messageDetail.widthAnchor.constraint(equalTo: messageStack.widthAnchor),
+            message.centerXAnchor.constraint(equalTo: centerXAnchor),
+            message.centerYAnchor.constraint(equalTo: centerYAnchor),
+            message.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -64),
         ])
 
-        loadingBox.material = .hudWindow
-        loadingBox.blendingMode = .withinWindow
-        loadingBox.state = .active
-        loadingBox.wantsLayer = true
-        loadingBox.layer?.cornerRadius = 12
-        loadingBox.layer?.masksToBounds = true
         loadingBox.isHidden = true
         loadingFilename.font = .systemFont(ofSize: 13, weight: .medium)
+        loadingFilename.textColor = Theme.textPrimary
         loadingFilename.lineBreakMode = .byTruncatingMiddle
         loadingFilename.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let loadingRow = NSStackView(views: [progress, loadingFilename])
@@ -79,12 +59,12 @@ final class ImageCanvas: NSView {
         NSLayoutConstraint.activate([
             loadingBox.centerXAnchor.constraint(equalTo: centerXAnchor),
             loadingBox.centerYAnchor.constraint(equalTo: centerYAnchor),
-            loadingBox.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+            loadingBox.widthAnchor.constraint(lessThanOrEqualToConstant: 320),
             loadingBox.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
-            loadingRow.leadingAnchor.constraint(equalTo: loadingBox.leadingAnchor, constant: 20),
-            loadingRow.trailingAnchor.constraint(equalTo: loadingBox.trailingAnchor, constant: -20),
-            loadingRow.topAnchor.constraint(equalTo: loadingBox.topAnchor, constant: 16),
-            loadingRow.bottomAnchor.constraint(equalTo: loadingBox.bottomAnchor, constant: -16),
+            loadingRow.leadingAnchor.constraint(equalTo: loadingBox.leadingAnchor, constant: 18),
+            loadingRow.trailingAnchor.constraint(equalTo: loadingBox.trailingAnchor, constant: -18),
+            loadingRow.topAnchor.constraint(equalTo: loadingBox.topAnchor, constant: 12),
+            loadingRow.bottomAnchor.constraint(equalTo: loadingBox.bottomAnchor, constant: -12),
             progress.widthAnchor.constraint(equalToConstant: 16),
             progress.heightAnchor.constraint(equalToConstant: 16),
         ])
@@ -97,26 +77,22 @@ final class ImageCanvas: NSView {
         action: (() -> Void)? = nil
     ) {
         hideLoading()
-        messageTitle.stringValue = title
-        messageDetail.stringValue = detail
-        messageButton.title = actionTitle ?? ""
-        messageButton.isHidden = actionTitle == nil
-        messageAction = action
-        messageStack.isHidden = false
+        message.show(title, detail: detail, actionTitle: actionTitle, action: action)
+        message.isHidden = false
         setAccessibilityElement(false)
     }
 
     func beginLoading() {
         hideLoading()
         isLoading = true
-        messageStack.isHidden = true
+        message.isHidden = true
         // A cache lookup is pending, but only a miss needs visible loading feedback.
         setAccessibilityElement(false)
     }
 
     func showLoading(filename: String) {
         beginLoading()
-        loadingFilename.stringValue = filename
+        loadingFilename.stringValue = "Loading \(filename)"
         loadingFilename.toolTip = filename
         loadingBox.isHidden = false
         progress.startAnimation(nil)
@@ -128,8 +104,6 @@ final class ImageCanvas: NSView {
         loadingBox.isHidden = true
     }
 
-    @objc private func performMessageAction() { messageAction?() }
-
     func resetZoom(to mode: ViewingMode = .fit) {
         zoom.reset(to: mode)
         modeChanged?(zoom.mode)
@@ -139,16 +113,19 @@ final class ImageCanvas: NSView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         needsDisplay = true
+        zoomChanged?()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        message.updateHeadlineSize()
         needsDisplay = true
+        zoomChanged?()
     }
 
     private var scale: Double {
         guard let image else { return 1 }
-        let backing = convertToBacking(bounds.size)
+        let backing = convertToBacking(NSSize(width: max(1, bounds.width - 16), height: max(1, bounds.height - 16)))
         return zoom.effectiveScale(
             pixelWidth: Double(image.width), pixelHeight: Double(image.height),
             viewportWidth: backing.width, viewportHeight: backing.height, backingScale: 1)
@@ -164,11 +141,21 @@ final class ImageCanvas: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
-        bounds.fill()
         guard let image, let context = NSGraphicsContext.current?.cgContext else { return }
+        let rect = displayedImageRect
         context.interpolationQuality = scale >= 1 ? .none : .high
-        context.draw(image, in: displayedImageRect)
+        context.saveGState()
+        // Thin panoramas and zoomed-out icons can be smaller than the usual corner diameter.
+        let radius = min(3, rect.width / 2, rect.height / 2)
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        context.clip()
+        context.draw(image, in: rect)
+        context.restoreGState()
+    }
+
+    var zoomDescription: String {
+        let percent = Int((scale * 100).rounded())
+        return zoom.scale == nil ? "Fit, \(percent)%" : "\(percent)%"
     }
 
     override func scrollWheel(with event: NSEvent) {

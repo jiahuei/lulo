@@ -31,7 +31,9 @@ func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 
         kCGImagePropertyExifDictionary: [
             "DateTimeOriginal": "2026:01:02 03:04:05", "FNumber": 2.8, "BodySerialNumber": "SYNTHETIC",
         ],
-        kCGImagePropertyTIFFDictionary: ["Make": "Synthetic Camera", "Artist": "Lulo Tests"],
+        kCGImagePropertyTIFFDictionary: [
+            "Make": "Synthetic Camera", "Artist": "Lulo Tests", "DateTime": "2026:02:03 04:05:06",
+        ],
     ]
     if let rating {
         let metadata = CGImageMetadataCreateMutable()
@@ -59,7 +61,7 @@ func supportedFormatsRemainReadOnly(_ suffix: String) throws {
         #expect(details.height == 8)
         #expect(
             details.groups.map(\.name) == [
-                "File", "Timestamps", "Exposure", "Camera and lens", "Attribution and comments", "Location",
+                "File", "Timestamps", "Exposure", "Camera and lens", "Location", "Attribution and comments",
             ])
         #expect(try Data(contentsOf: url) == before)
     }
@@ -233,5 +235,23 @@ func oversizedImageIsRecoverable() throws {
         let next = folder.appendingPathComponent("next.png")
         try fixture(at: next)
         #expect(try ImageLoader.decode(at: next).width == 12)
+    }
+}
+
+/// Ensures discovery carries oriented dimensions for justified rows without a second metadata read.
+@Test(arguments: [1, 6])
+func entryDimensionsAndMetadataLabels(_ orientation: Int) throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("geometry.jpg")
+        try fixture(at: url, type: .jpeg, orientation: orientation)
+        let details = try ImageLoader.details(at: url)
+        #expect(details.entry.pixelSize == CGSize(width: orientation == 6 ? 8 : 12, height: orientation == 6 ? 12 : 8))
+        #expect(try ImageLoader.discover(in: folder).first?.pixelSize == details.entry.pixelSize)
+        let fields = Dictionary(uniqueKeysWithValues: details.groups.flatMap(\.fields).map { ($0.name, $0.value) })
+        #expect(fields["Dimensions"] == "\(details.width) × \(details.height)")
+        #expect(fields["File Dimensions"] == nil && fields["Current Dimensions"] == nil)
+        #expect(fields["Date Time Captured"] == "2026:01:02 03:04:05")
+        #expect(fields["Date Time Modified"] == "2026:02:03 04:05:06")
+        #expect(details.groups.last?.name == "Attribution and comments")
     }
 }

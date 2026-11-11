@@ -4,29 +4,52 @@ import LuloImaging
 import UniformTypeIdentifiers
 
 @MainActor
-final class ViewerController: NSWindowController {
+final class ViewerController: NSWindowController, NSWindowDelegate {
     private var session = ViewingSession(preferences: Preferences(defaults: .standard))
     private let canvas = ImageCanvas()
-    private let gallery = GalleryView()
-    private let galleryButton = NSButton()
+    private let thumbnailLoader = ThumbnailLoader()
+    private lazy var gallery = GalleryView(loader: thumbnailLoader)
+    private let galleryButton = CapsuleButton()
     private var galleryVisible = false
-    private let metadata = NSTextView()
-    private let sidebar = NSScrollView()
-    private let display = NSSegmentedControl()
-    private let sorting = NSPopUpButton()
-    private let direction = NSPopUpButton()
+    private let display = ButtonChoices(
+        labels: ["Fit to Window", "100%"], symbols: ["arrow.down.right.and.arrow.up.left", nil])
+    private let sorting = ButtonChoices(labels: SortMethod.allCases.map(\.rawValue), track: true)
+    private let direction = ButtonChoices(labels: ["Ascending", "Descending"], track: true)
     private var ratingButtons: [NSButton] = []
     private var formatButtons: [NSButton] = []
-    private let info = NSButton()
-    private let browse = NSButton()
-    private let previous = NSButton()
-    private let next = NSButton()
-    private let trash = NSButton()
-    private let refresh = NSButton()
+    private let info = CapsuleButton()
+    private let browse = CapsuleButton()
+    private let previous = CapsuleButton()
+    private let next = CapsuleButton()
+    private let trash = CapsuleButton()
+    private let refresh = CapsuleButton()
     private let browsePopover = NSPopover()
     private let filterSummary = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
-    private let rating = NSTextField(labelWithString: "")
+    private let rating = RatingChip()
+    private let zoomLabel = NSTextField(labelWithString: "")
+    private let metadataPanel = MetadataPanel()
+    private let breadcrumb = BreadcrumbView()
+    private let background = ViewerBackground()
+    private let backgroundRenderer = BackgroundRenderer()
+    private let blurred = CapsuleButton()
+    private let galleryLayout = ButtonChoices(
+        labels: ["Rows", "Preview"], symbols: ["rectangle.grid.1x2", "sidebar.squares.left"])
+    private let sizeSlider = ThumbnailSizeSlider()
+    private var gallerySizeControls: NSStackView?
+    private let smaller = CapsuleButton()
+    private let larger = CapsuleButton()
+    private var refreshTimer: Timer?
+    private var refreshPhase = 0
+    private let refreshGlyph = Theme.refreshGlyph(phase: 0)
+    private var sliderWidth: NSLayoutConstraint?
+    private var breadcrumbWidth: NSLayoutConstraint?
+    private var thumbnailTask: Task<Void, Never>?
+    private var posterTask: Task<Void, Never>?
+    private var presentationKey = ""
+    private var manualRefresh = false
+    private var refreshingFolder = false
+    private var refreshRequest = 0
     typealias DiscoverImages = @Sendable (URL, @Sendable () -> Bool) throws -> [ImageEntry]
     typealias MoveToTrash = @Sendable (URL, FileAccess) async throws -> Void
     private let moveToTrash: MoveToTrash
@@ -60,12 +83,17 @@ final class ViewerController: NSWindowController {
         self.automaticallyRefresh = automaticallyRefresh
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered,
+            defer: false)
         window.title = "Lulo"
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 720, height: 400)
         window.toolbarStyle = .unified
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = Theme.wall
         super.init(window: window)
+        window.delegate = self
         worker.maxConcurrentOperationCount = 1
         worker.qualityOfService = .userInitiated
         buildInterface()
@@ -79,73 +107,65 @@ final class ViewerController: NSWindowController {
         super.showWindow(sender)
     }
 
-    private func popup(_ popup: NSPopUpButton, title: String, values: [String], action: Selector) {
-        popup.addItems(withTitles: values)
-        popup.setAccessibilityLabel(title)
-        popup.toolTip = title
-        popup.target = self
-        popup.action = action
-    }
-
     private func buildInterface() {
         guard let window else { return }
-        display.segmentCount = 2
-        display.trackingMode = .selectOne
-        display.segmentStyle = .texturedRounded
-        display.setImage(
-            NSImage(systemSymbolName: "arrow.down.right.and.arrow.up.left", accessibilityDescription: "Fit to Window"),
-            forSegment: 0)
-        display.setLabel("100%", forSegment: 1)
-        display.setToolTip("Fit to Window", forSegment: 0)
-        display.setToolTip("100%", forSegment: 1)
-        display.setAccessibilityLabel("Viewing mode")
-        display.target = self
-        display.action = #selector(viewingModeChanged)
-        popup(
-            sorting, title: "Sort images by", values: SortMethod.allCases.map(\.rawValue),
-            action: #selector(preferencesChanged))
-        popup(
-            direction, title: "Sort direction", values: ["Ascending", "Descending"],
-            action: #selector(preferencesChanged))
+        display.identifier = .init("Display")
+        galleryLayout.identifier = .init("GalleryLayout")
+        sizeSlider.identifier = .init("ThumbnailSize")
+        for (control, label, action) in [
+            (display, "Viewing mode", #selector(viewingModeChanged)),
+            (sorting, "Sort images by", #selector(preferencesChanged)),
+            (direction, "Sort direction", #selector(preferencesChanged)),
+            (galleryLayout, "Gallery layout", #selector(layoutChanged)),
+        ] {
+            control.setAccessibilityLabel(label)
+            control.target = self
+            control.action = action
+        }
         ratingButtons = ["Unrated / 0 Stars", "1 Star", "2 Stars", "3 Stars", "4 Stars", "5 Stars"].map {
             NSButton(checkboxWithTitle: $0, target: self, action: #selector(filtersChanged))
         }
         formatButtons = ImageFormat.allCases.map {
             NSButton(checkboxWithTitle: $0.rawValue, target: self, action: #selector(filtersChanged))
         }
-        display.selectedSegment = 0
-        sorting.selectItem(withTitle: session.preferences.sort.rawValue)
-        direction.selectItem(at: session.preferences.ascending ? 0 : 1)
+        display.selectedIndex = 0
+        sorting.selectedIndex = SortMethod.allCases.firstIndex(of: session.preferences.sort) ?? 0
+        direction.selectedIndex = session.preferences.ascending ? 0 : 1
         configureButton(previous, title: "Previous image", symbol: "chevron.left", action: #selector(previousImage))
         configureButton(next, title: "Next image", symbol: "chevron.right", action: #selector(nextImage))
         configureButton(info, title: "Show metadata", symbol: "sidebar.right", action: #selector(toggleSidebar))
         info.setButtonType(.toggle)
+        info.showsSelection = true
         configureButton(trash, title: "Move to Trash", symbol: "trash", action: #selector(trashCurrentImage))
         configureButton(
-            refresh, title: "Refresh (Command-R)", symbol: "arrow.clockwise", action: #selector(refreshImages))
+            refresh, title: "Refresh (⌘R)", symbol: "arrow.clockwise", action: #selector(refreshImages))
         configureButton(
             galleryButton, title: "Show gallery", symbol: "square.grid.2x2", action: #selector(toggleGallery))
-        galleryButton.setButtonType(.toggle)
         configureButton(
             browse, title: "Sort & Filter", symbol: "line.3.horizontal.decrease.circle", action: #selector(showBrowse))
+        refresh.glyph = refreshGlyph
+        configureButton(
+            blurred, title: "Blurred Background", symbol: "drop.halffull", action: #selector(toggleBlurredBackground))
+        blurred.setButtonType(.toggle)
+        blurred.showsSelection = true
+        for button in display.buttons { button.showsSelection = true }
+        configureButton(
+            smaller, title: "Smaller thumbnails", symbol: "square.grid.3x3", action: #selector(smallerThumbnails))
+        configureButton(larger, title: "Larger thumbnails", symbol: "square", action: #selector(largerThumbnails))
+        galleryLayout.buttons[0].setLabel("Rows (⌘1)")
+        galleryLayout.buttons[1].setLabel("Preview (⌘2)")
+        sizeSlider.controlSize = .small
+        sizeSlider.isContinuous = true
+        sizeSlider.target = self
+        sizeSlider.action = #selector(thumbnailSizeChanged)
+        breadcrumb.showGallery = { [weak self] in self?.setGalleryVisible(true) }
         makeBrowsePopover()
         let toolbar = NSToolbar(identifier: "Viewer")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
 
-        metadata.isEditable = false
-        metadata.isSelectable = true
-        metadata.isVerticallyResizable = true
-        metadata.isHorizontallyResizable = false
-        metadata.textContainerInset = NSSize(width: 16, height: 20)
-        metadata.autoresizingMask = [.width]
-        metadata.textContainer?.widthTracksTextView = true
-        metadata.setAccessibilityLabel("Image metadata")
-        sidebar.documentView = metadata
-        sidebar.hasVerticalScroller = true
-        sidebar.widthAnchor.constraint(equalToConstant: 300).isActive = true
-        sidebar.isHidden = true
+        metadataPanel.isHidden = true
         gallery.isHidden = true
         let workspace = NSView()
         for view in [canvas, gallery] {
@@ -158,53 +178,59 @@ final class ViewerController: NSWindowController {
                 view.bottomAnchor.constraint(equalTo: workspace.bottomAnchor),
             ])
         }
-        let content = NSStackView(views: [workspace, sidebar])
+        let content = NSStackView(views: [workspace, metadataPanel])
         content.orientation = .horizontal
         content.alignment = .top
         content.distribution = .fill
         content.spacing = 0
         workspace.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        status.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        status.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .regular)
         status.textColor = .secondaryLabelColor
-        rating.font = .systemFont(ofSize: 13, weight: .medium)
-        rating.textColor = .systemYellow
-        filterSummary.font = .systemFont(ofSize: 11)
-        filterSummary.textColor = .secondaryLabelColor
+        zoomLabel.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .regular)
+        zoomLabel.textColor = Theme.textSecondary
+        zoomLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        filterSummary.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .regular)
+        filterSummary.textColor = Theme.accentText
         filterSummary.lineBreakMode = .byTruncatingTail
         filterSummary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let footer = NSView()
-        for label in [status, rating, filterSummary] {
-            label.translatesAutoresizingMaskIntoConstraints = false
-            footer.addSubview(label)
-        }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        rating.identifier = .init("StatusRating")
+        let footer = NSStackView(views: [status, rating, filterSummary, spacer, zoomLabel])
+        footer.spacing = 14
+        footer.detachesHiddenViews = true
+        footer.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 4, right: 20)
+        footer.setCustomSpacing(10, after: status)
         let root = NSView()
         window.contentView = root
+        background.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(background)
+        NSLayoutConstraint.activate([
+            background.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            background.topAnchor.constraint(equalTo: root.topAnchor),
+            background.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
         for view in [content, footer] {
             view.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(view)
         }
         NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: root.topAnchor),
+            content.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
             content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             content.bottomAnchor.constraint(equalTo: footer.topAnchor),
             workspace.heightAnchor.constraint(equalTo: content.heightAnchor),
-            sidebar.heightAnchor.constraint(equalTo: content.heightAnchor),
+            metadataPanel.heightAnchor.constraint(equalTo: content.heightAnchor),
             footer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            footer.heightAnchor.constraint(equalToConstant: 30),
-            status.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: 16),
-            status.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
-            rating.leadingAnchor.constraint(equalTo: status.trailingAnchor, constant: 12),
-            rating.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
-            filterSummary.leadingAnchor.constraint(greaterThanOrEqualTo: rating.trailingAnchor, constant: 20),
-            filterSummary.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -16),
-            filterSummary.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            footer.heightAnchor.constraint(equalToConstant: 34),
         ])
+        canvas.zoomChanged = { [weak self] in self?.updateZoomStatus() }
         canvas.navigate = { [weak self] delta in self?.navigate(delta) }
-        canvas.modeChanged = { [weak self] mode in self?.display.selectedSegment = mode == .fit ? 0 : 1 }
+        canvas.modeChanged = { [weak self] mode in self?.display.selectedIndex = mode == .fit ? 0 : 1 }
         gallery.selectionChanged = { [weak self] url in
             guard let self else { return }
             self.session.select(url)
@@ -214,16 +240,28 @@ final class ViewerController: NSWindowController {
         gallery.clearFilters = { [weak self] in self?.clearFilters() }
         canvas.resetZoom()
         canvas.showMessage(
-            "Open an image", detail: "View JPEG, PNG, and HEIF images.",
-            actionTitle: "Open Image…", action: { [weak self] in self?.openPanel() })
+            "Open an image.", detail: "View JPEG, PNG, and HEIF images.",
+            actionTitle: "Open Image", action: { [weak self] in self?.openPanel() })
         updateStatus()
         window.makeFirstResponder(canvas)
     }
 
-    private func configureButton(_ button: NSButton, title: String, symbol: String, action: Selector) {
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+    private func configureButton(_ button: CapsuleButton, title: String, symbol: String, action: Selector) {
+        let identifiers = [
+            "Show gallery": "Gallery", "Previous image": "Previous", "Next image": "Next",
+            "Show metadata": "Metadata", "Move to Trash": "Trash", "Refresh (⌘R)": "Refresh", "Sort & Filter": "Browse",
+        ]
+        button.identifier = .init(identifiers[title] ?? title)
+        button.title = ""
+        button.glyph = Theme.symbol(symbol)
         button.imagePosition = .imageOnly
         button.bezelStyle = .texturedRounded
+        button.isBordered = false
+        button.setButtonType(.momentaryPushIn)
+        button.imageScaling = .scaleProportionallyDown
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
         button.toolTip = title
         button.setAccessibilityLabel(title)
         button.target = self
@@ -231,56 +269,61 @@ final class ViewerController: NSWindowController {
     }
 
     private func makeBrowsePopover() {
+        func label(_ text: String) -> NSTextField {
+            let label = NSTextField(labelWithString: text)
+            label.font = .systemFont(ofSize: 11, weight: .semibold)
+            label.textColor = Theme.textTertiary
+            return label
+        }
         let heading = NSTextField(labelWithString: "Sort & Filter")
-        heading.font = .systemFont(ofSize: 15, weight: .semibold)
-        let reset = NSButton(title: "Clear Filters", target: self, action: #selector(clearFilters))
+        heading.font = .systemFont(ofSize: 15, weight: .bold)
         let ratings = NSGridView(views: [
             [ratingButtons[0], ratingButtons[3]],
             [ratingButtons[1], ratingButtons[4]],
             [ratingButtons[2], ratingButtons[5]],
         ])
-        ratings.rowSpacing = 8
-        ratings.columnSpacing = 12
+        ratings.rowSpacing = 6
+        ratings.columnSpacing = 10
         ratings.xPlacement = .fill
         ratingButtons[0].widthAnchor.constraint(equalTo: ratingButtons[3].widthAnchor).isActive = true
         let formats = NSStackView(views: formatButtons)
-        formats.spacing = 8
-        let grid = NSGridView(views: [
-            [NSTextField(labelWithString: "Sort by"), sorting],
-            [NSTextField(labelWithString: "Direction"), direction],
-            [NSTextField(labelWithString: "Rating"), ratings],
-            [NSTextField(labelWithString: "File type"), formats],
-        ])
-        grid.rowSpacing = 12
-        grid.columnSpacing = 16
-        grid.column(at: 0).xPlacement = .trailing
-        grid.column(at: 0).width = 68
-        grid.column(at: 1).xPlacement = .fill
+        formats.spacing = 16
         let note = NSTextField(
             wrappingLabelWithString:
                 "Select any matching values in each group. No checkmarks means all values. Rating and file type apply together."
         )
         note.font = .systemFont(ofSize: 11)
-        note.textColor = .secondaryLabelColor
-        let stack = NSStackView(views: [heading, grid, note, reset])
+        note.textColor = Theme.textSecondary
+        let separator = NSBox()
+        separator.boxType = .separator
+        let reset = NSButton(title: "Clear Filters", target: self, action: #selector(clearFilters))
+        reset.bezelStyle = .rounded
+        let footer = NSStackView()
+        footer.setViews([reset], in: .trailing)
+        let sections: [[NSView]] = [
+            [heading], [label("Sort by"), sorting], [label("Direction"), direction],
+            [label("Rating"), ratings], [label("File type"), formats], [note], [separator, footer],
+        ]
+        let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 16
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 320))
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-            grid.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            note.widthAnchor.constraint(equalTo: stack.widthAnchor),
-        ])
+        stack.spacing = 14
+        for views in sections {
+            let section = NSStackView(views: views)
+            section.orientation = .vertical
+            section.alignment = .leading
+            section.spacing = 7
+            stack.addArrangedSubview(section)
+            for view in views + [section] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        }
+        let container = NSView()
+        pin(stack, in: container, insets: NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16))
+        container.widthAnchor.constraint(equalToConstant: 330).isActive = true
         let controller = NSViewController()
         controller.view = container
         browsePopover.contentViewController = controller
         browsePopover.behavior = .transient
-        browsePopover.contentSize = NSSize(width: 380, height: 320)
+        browsePopover.contentSize = container.fittingSize
     }
 
     @objc private func showBrowse() {
@@ -301,41 +344,7 @@ final class ViewerController: NSWindowController {
         filtersChanged()
     }
 
-    private func showMetadata(_ details: ImageDetails) {
-        let text = NSMutableAttributedString(string: "")
-        for group in details.groups where !group.fields.isEmpty {
-            let heading = NSMutableParagraphStyle()
-            heading.paragraphSpacingBefore = text.length == 0 ? 0 : 18
-            heading.paragraphSpacing = 8
-            text.append(
-                NSAttributedString(
-                    string: group.name + "\n",
-                    attributes: [
-                        .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-                        .foregroundColor: NSColor.labelColor, .paragraphStyle: heading,
-                    ]))
-            for field in group.fields {
-                text.append(
-                    NSAttributedString(
-                        string: field.name + "\n",
-                        attributes: [
-                            .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor,
-                        ]))
-                let value = NSMutableParagraphStyle()
-                value.paragraphSpacing = 10
-                value.lineBreakMode = .byCharWrapping
-                text.append(
-                    NSAttributedString(
-                        string: field.value + "\n",
-                        attributes: [
-                            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor,
-                            .paragraphStyle: value,
-                        ]))
-            }
-        }
-        metadata.textStorage?.setAttributedString(text)
-        metadata.scrollToBeginningOfDocument(nil)
-    }
+    private func showMetadata(_ details: ImageDetails) { metadataPanel.show(details) }
 
     var canTrashCurrentImage: Bool {
         !galleryVisible && session.selectedURL != nil && canvas.image != nil && !canvas.isLoading && !trashInProgress
@@ -348,8 +357,8 @@ final class ViewerController: NSWindowController {
         else { return }
         let generation = session.generation
         let alert = NSAlert()
-        alert.messageText = "Move “\(url.lastPathComponent)” to Trash?"
-        alert.informativeText = "You can recover this image from the Trash in Finder."
+        alert.messageText = "Move “\(url.lastPathComponent)” to the Trash?"
+        alert.informativeText = "You can put it back from the Trash in Finder."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Move to Trash")
@@ -421,6 +430,11 @@ final class ViewerController: NSWindowController {
     func open(_ url: URL) {
         changeMonitor = nil
         automaticRefreshTask?.cancel()
+        manualRefresh = false
+        refreshingFolder = false
+        refreshRequest += 1
+        presentationKey = ""
+        background.setImages(nil)
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         browsePopover.performClose(nil)
@@ -440,9 +454,9 @@ final class ViewerController: NSWindowController {
         for button in ratingButtons + formatButtons { button.state = .off }
         info.state = .off
         info.setAccessibilityLabel("Show metadata")
-        sidebar.isHidden = true
+        metadataPanel.isHidden = true
         canvas.resetZoom()
-        metadata.string = ""
+        metadataPanel.clear()
         rating.stringValue = ""
         status.stringValue = ""
         let parent = url.deletingLastPathComponent().standardizedFileURL
@@ -450,7 +464,7 @@ final class ViewerController: NSWindowController {
         do { _ = try ImageLoader.validateFormat(url) } catch {
             canvas.image = nil
             canvas.showMessage(
-                "Cannot open this image", detail: error.localizedDescription,
+                "Can’t open this file.", detail: error.localizedDescription,
                 actionTitle: "Open Another Image…", action: { [weak self] in self?.openPanel() })
             updateStatus()
             return
@@ -519,11 +533,14 @@ final class ViewerController: NSWindowController {
     @objc func refreshImages() {
         guard canRefresh else { return }
         automaticRefreshTask?.cancel()
+        manualRefresh = true
         refreshContents()
     }
 
     private func refreshContents() {
         worker.cancelAllOperations()
+        refreshRequest += 1
+        refreshingFolder = folderAccess != nil
         cacheGeneration += 1
         thumbnailGeneration += 1
         // A single authorized image can become visible again after its embedded rating changes.
@@ -558,6 +575,7 @@ final class ViewerController: NSWindowController {
     private func discoverFolder() {
         guard let access = folderAccess else { return }
         let generation = session.generation
+        let currentRefresh = refreshRequest
         let opened = session.entries.first(where: { $0.url == openedURL })
         let openedAccess = fileAccess
         let discover = discoverImages
@@ -579,6 +597,7 @@ final class ViewerController: NSWindowController {
                 guard !operation.isCancelled else { return }
                 _ = Task { @MainActor [weak self] in
                     guard let self, self.session.generation == generation, !operation.isCancelled else { return }
+                    if self.refreshRequest == currentRefresh { self.refreshingFolder = false }
                     switch result {
                     case .success(let entries):
                         let selected = self.session.selectedURL
@@ -587,6 +606,7 @@ final class ViewerController: NSWindowController {
                         self.updateStatus()
                         self.prefetchNeighbor()
                     case .failure:
+                        self.updateStatus()
                         self.status.stringValue = "Folder could not be read. Refresh to try again."
                     }
                 }
@@ -604,7 +624,7 @@ final class ViewerController: NSWindowController {
             return
         }
         let currentRequest = request
-        metadata.string = ""
+        metadataPanel.clear()
         rating.stringValue = ""
         guard let url = session.selectedURL ?? (reloadingOpenedImage ? openedURL : nil) else {
             canvas.image = nil
@@ -612,10 +632,10 @@ final class ViewerController: NSWindowController {
             if session.entries.isEmpty {
                 canvas.showMessage(
                     "No images remaining", detail: "Open another image to continue.",
-                    actionTitle: "Open Image…", action: { [weak self] in self?.openPanel() })
+                    actionTitle: "Open Image", action: { [weak self] in self?.openPanel() })
             } else {
                 canvas.showMessage(
-                    "No matching images", detail: "No images match the current filters.",
+                    "No images match the current filters.", detail: filterSummary.stringValue,
                     actionTitle: "Clear Filters", action: { [weak self] in self?.clearFilters() })
             }
             updateStatus()
@@ -643,12 +663,7 @@ final class ViewerController: NSWindowController {
                 self.canvas.image = loaded.image
                 self.canvas.setAccessibilityLabel(url.lastPathComponent)
                 self.showMetadata(loaded.details)
-                if let stars = loaded.details.entry.rating, (1...5).contains(stars) {
-                    self.rating.stringValue = String(repeating: "★", count: stars)
-                    let label = "\(stars) \(stars == 1 ? "star" : "stars")"
-                    self.rating.setAccessibilityLabel(label)
-                    self.rating.toolTip = label
-                }
+                self.rating.setRating(loaded.details.entry.rating)
                 self.updateStatus()
                 self.prefetchNeighbor()
             } catch is CancellationError {
@@ -657,7 +672,7 @@ final class ViewerController: NSWindowController {
                 guard !Task.isCancelled, let self, self.request == currentRequest else { return }
                 self.canvas.image = nil
                 self.canvas.showMessage(
-                    "Cannot display this image", detail: error.localizedDescription,
+                    "Can’t open this file.", detail: error.localizedDescription,
                     actionTitle: "Open Another Image…", action: { [weak self] in self?.openPanel() })
                 self.updateStatus()
             }
@@ -690,9 +705,6 @@ final class ViewerController: NSWindowController {
         refresh.isEnabled = canRefresh
         rating.isHidden = galleryVisible || canvas.image == nil || canvas.isLoading || rating.stringValue.isEmpty
         if galleryVisible, let folderAccess {
-            gallery.update(
-                entries: entries, selectedURL: session.selectedURL, folderAccess: folderAccess, fileAccess: fileAccess,
-                generation: thumbnailGeneration)
             window?.title = folderAccess.url.lastPathComponent
         }
         if let index = entries.firstIndex(where: { $0.url == session.selectedURL }) {
@@ -713,9 +725,51 @@ final class ViewerController: NSWindowController {
         if !formats.isEmpty { filters.append(formats.joined(separator: ", ")) }
         filterSummary.stringValue = filters.isEmpty ? "" : "Filtered by " + filters.joined(separator: " · ")
         filterSummary.toolTip = filterSummary.stringValue
-        let browseLabel = filters.isEmpty ? "Sort & Filter" : "Sort & Filter, \(filters.count) active filters"
+        let count = session.filter.activeCount
+        let browseLabel =
+            count == 0 ? "Sort & Filter" : "Sort & Filter, \(count) active \(count == 1 ? "filter" : "filters")"
+        browse.badgeCount = count
         browse.toolTip = browseLabel
         browse.setAccessibilityLabel(browseLabel)
+        if galleryVisible, let folderAccess {
+            gallery.update(
+                entries: entries, selectedURL: session.selectedURL, folderAccess: folderAccess,
+                fileAccess: fileAccess, generation: thumbnailGeneration, preferences: session.preferences,
+                totalCount: session.entries.count, filterSummary: filterSummary.stringValue)
+        }
+        updatePresentationControls()
+        updateSelectedPresentation()
+        if manualRefresh && !refreshingFolder && (galleryVisible || !canvas.isLoading) { manualRefresh = false }
+        updateRefreshAnimation()
+        updateZoomStatus()
+    }
+
+    private func updateRefreshAnimation() {
+        guard manualRefresh && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            refreshTimer?.invalidate()
+            refreshTimer = nil
+            refreshPhase = 0
+            refresh.glyph = refreshGlyph
+            return
+        }
+        guard refreshTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            // Installed on the main run loop below; keep animating during native event tracking.
+            MainActor.assumeIsolated {
+                if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    self.updateRefreshAnimation()
+                    return
+                }
+                self.refreshPhase = (self.refreshPhase + 1) % 8
+                self.refresh.glyph = Theme.refreshGlyph(phase: self.refreshPhase)
+            }
+        }
+        refreshTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func navigate(_ delta: Int) {
@@ -730,13 +784,12 @@ final class ViewerController: NSWindowController {
     @objc func nextImage() { navigate(1) }
 
     @objc private func viewingModeChanged() {
-        canvas.resetZoom(to: display.selectedSegment == 0 ? .fit : .actualSize)
+        canvas.resetZoom(to: display.selectedIndex == 0 ? .fit : .actualSize)
     }
 
     @objc private func preferencesChanged() {
-        session.preferences = Preferences(
-            sort: SortMethod.allCases[sorting.indexOfSelectedItem],
-            ascending: direction.indexOfSelectedItem == 0)
+        session.preferences.sort = SortMethod.allCases[sorting.selectedIndex]
+        session.preferences.ascending = direction.selectedIndex == 0
         session.preferences.save(to: .standard)
         updateStatus()
         prefetchNeighbor()
@@ -751,8 +804,10 @@ final class ViewerController: NSWindowController {
                 }))
         let previous = session.selectedURL
         session.reconcileSelection()
-        if session.selectedURL != previous { loadSelection() }
         updateStatus()
+        if session.selectedURL != previous || (session.selectedURL == nil && !session.entries.isEmpty) {
+            loadSelection()
+        }
         prefetchNeighbor()
     }
 
@@ -761,14 +816,14 @@ final class ViewerController: NSWindowController {
         session.sidebarVisible.toggle()
         info.state = session.sidebarVisible ? .on : .off
         info.setAccessibilityLabel(session.sidebarVisible ? "Hide metadata" : "Show metadata")
-        sidebar.isHidden = !session.sidebarVisible
+        info.toolTip = session.sidebarVisible ? "Hide metadata" : "Show metadata"
+        metadataPanel.isHidden = !session.sidebarVisible
     }
 
     @objc func toggleGallery() {
         guard let openedURL else { return }
         let parent = openedURL.deletingLastPathComponent().standardizedFileURL
         guard folderAccess?.url.standardizedFileURL == parent else {
-            galleryButton.state = .off
             requestFolder(parent, generation: session.generation, showGallery: true)
             return
         }
@@ -784,12 +839,11 @@ final class ViewerController: NSWindowController {
 
     private func setGalleryVisible(_ visible: Bool) {
         galleryVisible = visible
-        galleryButton.state = visible ? .on : .off
         galleryButton.toolTip = visible ? "Return to image" : "Show gallery"
         galleryButton.setAccessibilityLabel(visible ? "Return to image" : "Show gallery")
         canvas.isHidden = visible
         gallery.isHidden = !visible
-        sidebar.isHidden = visible || !session.sidebarVisible
+        metadataPanel.isHidden = visible || !session.sidebarVisible
         if visible {
             canvas.resetZoom()
             loadTask?.cancel()
@@ -807,58 +861,216 @@ final class ViewerController: NSWindowController {
     }
 }
 
-extension ViewerController: NSToolbarDelegate {
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [
-            .init("Open"), .init("Gallery"), .init("Previous"), .init("Next"), .flexibleSpace, .init("Display"),
-            .init("Refresh"), .init("Browse"), .init("Metadata"), .init("Trash"),
-        ]
+extension ViewerController {
+    var isGalleryVisible: Bool { galleryVisible }
+    var selectedGalleryLayout: GalleryLayout { session.preferences.galleryLayout }
+    var isBlurredBackground: Bool { session.preferences.blurredBackground }
+
+    @objc func showRows() { chooseLayout(.rows) }
+    @objc func showPreview() { chooseLayout(.preview) }
+    @objc private func layoutChanged() { chooseLayout(galleryLayout.selectedIndex == 0 ? .rows : .preview) }
+    private func chooseLayout(_ layout: GalleryLayout) {
+        browsePopover.performClose(nil)
+        session.preferences.galleryLayout = layout
+        session.preferences.save(to: .standard)
+        if !galleryVisible {
+            toggleGallery()
+        } else {
+            updateStatus()
+            gallery.focusSelection()
+        }
+    }
+    @objc func largerThumbnails() { changeThumbnailSize(2) }
+    @objc func smallerThumbnails() { changeThumbnailSize(-2) }
+    private func changeThumbnailSize(_ steps: Int) {
+        guard galleryVisible else { return }
+        let mode = session.preferences.galleryLayout
+        saveThumbnailSize(mode.adjustedSize(sizeSlider.doubleValue, steps: steps))
+    }
+    @objc private func thumbnailSizeChanged() {
+        saveThumbnailSize(sizeSlider.doubleValue)
+    }
+    private func saveThumbnailSize(_ value: Double) {
+        let value = session.preferences.galleryLayout.snappedSize(value)
+        if session.preferences.galleryLayout == .rows {
+            session.preferences.rowsTargetHeight = value
+        } else {
+            session.preferences.previewTileSize = value
+        }
+        session.preferences.save(to: .standard)
+        updateStatus()
+    }
+    @objc func toggleBlurredBackground() {
+        session.preferences.blurredBackground.toggle()
+        session.preferences.save(to: .standard)
+        updateStatus()
     }
 
+    private func updatePresentationControls() {
+        display.isHidden = galleryVisible
+        galleryLayout.isHidden = !galleryVisible
+        gallerySizeControls?.isHidden = !galleryVisible
+        sizeSlider.isHidden = !galleryVisible
+        let width = window?.frame.width ?? 1000
+        smaller.isHidden = !galleryVisible || width < 900
+        larger.isHidden = smaller.isHidden
+        sliderWidth?.constant = width < 900 ? 64 : 92
+        let mode = session.preferences.galleryLayout
+        galleryLayout.selectedIndex = mode == .rows ? 0 : 1
+        sizeSlider.galleryLayout = mode
+        sizeSlider.minValue = mode.sizeRange.lowerBound
+        sizeSlider.maxValue = mode.sizeRange.upperBound
+        sizeSlider.doubleValue =
+            mode == .rows ? session.preferences.rowsTargetHeight : session.preferences.previewTileSize
+        sizeSlider.setAccessibilityLabel(mode == .rows ? "Row height" : "Thumbnail size")
+        sizeSlider.toolTip = mode == .rows ? "Row height" : "Thumbnail size"
+        smaller.isEnabled = sizeSlider.doubleValue > sizeSlider.minValue
+        larger.isEnabled = sizeSlider.doubleValue < sizeSlider.maxValue
+        blurred.state = session.preferences.blurredBackground ? .on : .off
+        background.enabled = session.preferences.blurredBackground
+        status.textColor = session.preferences.blurredBackground ? Theme.textPrimary : Theme.textSecondary
+        zoomLabel.textColor = status.textColor
+        breadcrumb.update(
+            file: session.selectedURL ?? openedURL, authorizedFolder: folderAccess?.url,
+            gallery: galleryVisible, windowWidth: width)
+        let items = window?.toolbar?.items ?? []
+        let groups = items.filter {
+            ["Files", "Navigation", "Display", "Actions"].contains($0.itemIdentifier.rawValue)
+        }
+        let controlsWidth = groups.reduce(CGFloat.zero) { $0 + ($1.view?.fittingSize.width ?? 0) }
+        let trafficLightsWidth =
+            window?.standardWindowButton(.zoomButton).map {
+                $0.convert($0.bounds, to: window?.contentView).maxX
+            } ?? 0
+        let itemSpacing = CGFloat(groups.count + 2) * 16
+        breadcrumbWidth?.constant = max(40, width - controlsWidth - trafficLightsWidth - itemSpacing)
+    }
+
+    private func updateZoomStatus() {
+        zoomLabel.isHidden = galleryVisible || canvas.image == nil
+        zoomLabel.stringValue = canvas.zoomDescription
+    }
+
+    private func updateSelectedPresentation() {
+        let preview = galleryVisible && session.preferences.galleryLayout == .preview
+        let blur = session.preferences.blurredBackground
+        let url = session.selectedURL
+        let key = "\(url?.absoluteString ?? "")|\(thumbnailGeneration)|\(cacheGeneration)|\(preview)|\(blur)"
+        guard key != presentationKey else { return }
+        presentationKey = key
+        thumbnailTask?.cancel()
+        posterTask?.cancel()
+        guard preview || blur, let url, let access = url == openedURL ? fileAccess : folderAccess else {
+            if url == nil { background.setImages(nil) }
+            return
+        }
+        let loader = thumbnailLoader
+        let renderer = backgroundRenderer
+        let generation = thumbnailGeneration
+        thumbnailTask = Task { [weak self] in
+            do {
+                let thumbnail = try await loader.load(at: url, access: access, generation: generation)
+                guard !Task.isCancelled, let self, self.presentationKey == key else { return }
+                if preview { self.gallery.showPreview(thumbnail.image) }
+                if blur {
+                    let images = await renderer.render(thumbnail)
+                    guard !Task.isCancelled, self.presentationKey == key else { return }
+                    self.background.setImages(images)
+                }
+            } catch {
+                guard !Task.isCancelled, let self, self.presentationKey == key else { return }
+                if preview { self.gallery.previewFailed() }
+                if blur { self.background.setImages(nil) }
+            }
+        }
+        if preview {
+            let store = imageStore
+            let generation = cacheGeneration
+            posterTask = Task { [weak self] in
+                do {
+                    let loaded = try await store.load(at: url, generation: generation, access: access)
+                    guard !Task.isCancelled, let self, self.presentationKey == key else { return }
+                    self.gallery.showPreview(loaded.image, details: loaded.details)
+                } catch {
+                    guard !Task.isCancelled, let self, self.presentationKey == key else { return }
+                    self.gallery.previewFailed()
+                }
+            }
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        manualRefresh = false
+        updateRefreshAnimation()
+    }
+
+    func windowDidResize(_ notification: Notification) { updatePresentationControls() }
+
+    func windowDidEndSheet(_ notification: Notification) {
+        // Completion handlers can run while attachedSheet still disables Refresh and Trash.
+        updateStatus()
+    }
+}
+
+extension ViewerController: NSToolbarDelegate {
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.init("Breadcrumb"), .flexibleSpace, .init("Display"), .init("Navigation"), .init("Files"), .init("Actions")]
+    }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
     }
-
     func toolbar(
         _ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: identifier)
+        item.visibilityPriority = .high
+        // Each group has independently enabled children, updated from the viewer's state.
+        item.autovalidates = false
+        if identifier.rawValue == "Breadcrumb" {
+            breadcrumb.translatesAutoresizingMaskIntoConstraints = false
+            breadcrumbWidth = breadcrumb.widthAnchor.constraint(equalToConstant: 200)
+            breadcrumbWidth?.isActive = true
+            breadcrumb.heightAnchor.constraint(equalToConstant: 34).isActive = true
+            item.view = breadcrumb
+            item.label = "Current folder and image"
+            return item
+        }
+        let views: [NSView]
         switch identifier.rawValue {
-        case "Open":
-            item.label = "Open Image"
-            let button = NSButton()
-            configureButton(button, title: "Open image", symbol: "photo", action: #selector(openPanel))
-            item.view = button
-        case "Previous":
-            item.label = "Previous Image"
-            item.view = previous
-        case "Gallery":
-            item.label = "Gallery"
-            item.view = galleryButton
-            item.visibilityPriority = .high
-        case "Next":
-            item.label = "Next Image"
-            item.view = next
+        case "Files":
+            let open = CapsuleButton()
+            configureButton(open, title: "Open image", symbol: "photo", action: #selector(openPanel))
+            views = [galleryButton, open, refresh]
+            item.label = "Gallery, Open and Refresh"
+        case "Navigation":
+            views = [previous, next]
+            item.label = "Previous and Next"
         case "Display":
-            item.label = "Default Zoom"
-            item.view = display
-        case "Browse":
-            item.label = "Sort & Filter"
-            item.view = browse
-            item.visibilityPriority = .high
-        case "Trash":
-            item.label = "Move to Trash"
-            item.view = trash
-        case "Refresh":
-            item.label = "Refresh"
-            item.view = refresh
-            item.visibilityPriority = .high
-        case "Metadata":
-            item.label = "Metadata"
-            item.view = info
+            for control in [display, galleryLayout] {
+                control.translatesAutoresizingMaskIntoConstraints = false
+                control.widthAnchor.constraint(equalToConstant: control === display ? 78 : 66).isActive = true
+                control.heightAnchor.constraint(equalToConstant: 28).isActive = true
+            }
+            sizeSlider.translatesAutoresizingMaskIntoConstraints = false
+            sliderWidth = sizeSlider.widthAnchor.constraint(equalToConstant: 92)
+            sliderWidth?.isActive = true
+            let sizeDivider = HairlineDivider()
+            let layoutDivider = HairlineDivider()
+            let sizeControls = NSStackView(views: [galleryLayout, layoutDivider, smaller, sizeSlider, larger])
+            gallerySizeControls = sizeControls
+            sizeControls.spacing = 2
+            sizeControls.alignment = .centerY
+            views = [display, sizeControls, sizeDivider, blurred]
+            // Hiding every child also collapses the gallery-only stack in image mode.
+            item.label = "Display"
+        case "Actions":
+            views = [browse, info, trash]
+            item.label = "Sort and Filter, Metadata and Trash"
         default: return nil
         }
+        let capsule = CapsuleView(views)
+        item.view = capsule
         return item
     }
 }
