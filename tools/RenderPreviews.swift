@@ -717,15 +717,6 @@ enum RenderPreviews {
                 CGPoint(x: bounds.midX, y: bounds.minY + 2),
                 CGPoint(x: bounds.midX, y: bounds.maxY - 2),
             ]
-            print("Gallery mouse geometry: \(button.title), frame \(button.frame), bounds \(bounds)")
-            print("Gallery mouse alignment insets: \(button.alignmentRectInsets)")
-            print("Gallery mouse parent: \(String(describing: button.superview?.frame))")
-            print("Gallery mouse group: \(layouts.frame)")
-            for point in points {
-                let hit = layouts.hitTest(button.convert(point, to: layouts.superview))
-                let name = hit.map { String(describing: type(of: $0)) } ?? "nil"
-                print("Gallery mouse hit: \(point) -> \(name), button \(hit === button)")
-            }
             for point in points {
                 if mode == .preview { viewer.showRows() } else { viewer.showPreview() }
                 try sendMouseGesture(to: button, at: point)
@@ -735,35 +726,6 @@ enum RenderPreviews {
                     posterButton.isHiddenOrHasHiddenAncestor == (mode == .rows),
                     slider.accessibilityLabel() == (mode == .preview ? "Thumbnail size" : "Row height")
                 else {
-                    if mode == .preview {
-                        print("Gallery failed state: \(viewer.selectedGalleryLayout), index \(layouts.selectedIndex)")
-                        print("Gallery failed button: \(button.state), highlighted \(button.isHighlighted)")
-                        print("Gallery failed poster hidden: \(posterButton.isHiddenOrHasHiddenAncestor)")
-                        let drawingRect = button.cell?.drawingRect(forBounds: bounds)
-                        print("Gallery cell drawing rect: \(String(describing: drawingRect))")
-                        for variant in 0..<6 {
-                            viewer.showRows()
-                            if variant == 0 { button.isBordered = true }
-                            if variant == 1 { button.bezelStyle = .regularSquare }
-                            if variant == 2 {
-                                button.isBordered = false
-                                button.image = button.glyph
-                                button.imagePosition = .imageOnly
-                            }
-                            if variant == 3 {
-                                let replacement = MouseProbeCell(textCell: button.title)
-                                replacement.setButtonType(.radio)
-                                replacement.isBordered = false
-                                replacement.target = button.target
-                                replacement.action = button.action
-                                button.cell = replacement
-                            }
-                            if variant == 4 { (button.cell as? MouseProbeCell)?.usesFullDrawingRect = true }
-                            if variant == 5 { button.setButtonType(.pushOnPushOff) }
-                            try sendMouseGesture(to: button, at: point)
-                            print("Gallery mouse probe \(variant): \(viewer.selectedGalleryLayout)")
-                        }
-                    }
                     throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: point, line: #line)
                 }
             }
@@ -785,20 +747,6 @@ enum RenderPreviews {
             else { throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: center, line: #line) }
         }
         print("Verified gallery mouse centers/edges, drag cancellation, and toolbar updates during tracking.")
-    }
-
-    private final class MouseProbeCell: NSButtonCell {
-        var usesFullDrawingRect = false
-
-        override func hitTest(for event: NSEvent, in cellFrame: NSRect, of controlView: NSView) -> NSCell.HitResult {
-            let result = super.hitTest(for: event, in: cellFrame, of: controlView)
-            print("Gallery cell hit: \(result), frame \(cellFrame)")
-            return [.contentArea, .trackableArea]
-        }
-
-        override func drawingRect(forBounds rect: NSRect) -> NSRect {
-            usesFullDrawingRect ? rect : super.drawingRect(forBounds: rect)
-        }
     }
 
     /// Sends queued mouse events through NSApplication so the window hit-tests and the button tracks its release.

@@ -29,7 +29,8 @@ final class CapsuleButton: NSButton {
         self.init(frame: .zero)
         kind = type
         setButtonType(type)
-        isBordered = false
+        // The custom capsule fills the button; borderless radio cells only track their native content.
+        isBordered = true
         self.title = title
         glyph = symbol.flatMap { Theme.symbol($0) }
         setLabel(label)
