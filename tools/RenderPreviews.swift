@@ -803,7 +803,7 @@ enum RenderPreviews {
                 return event
             }
             print(
-                "Release hit: \(String(describing: button.cell?.hitTest(up, in: button.bounds, of: button))), "
+                "Release hit: \(String(describing: button.cell?.hitTest(for: up, in: button.bounds, of: button))), "
                     + "cellSize=\(String(describing: button.cell?.cellSize))")
         }
         defer { if let monitor { NSEvent.removeMonitor(monitor) } }
