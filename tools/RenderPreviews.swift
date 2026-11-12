@@ -735,6 +735,31 @@ enum RenderPreviews {
                     posterButton.isHiddenOrHasHiddenAncestor == (mode == .rows),
                     slider.accessibilityLabel() == (mode == .preview ? "Thumbnail size" : "Row height")
                 else {
+                    if mode == .preview {
+                        print("Gallery cell drawing rect: \(String(describing: button.cell?.drawingRect(forBounds: bounds)))")
+                        for variant in 0..<6 {
+                            viewer.showRows()
+                            if variant == 0 { button.isBordered = true }
+                            if variant == 1 { button.bezelStyle = .regularSquare }
+                            if variant == 2 {
+                                button.isBordered = false
+                                button.image = button.glyph
+                                button.imagePosition = .imageOnly
+                            }
+                            if variant == 3 {
+                                let replacement = MouseProbeCell(textCell: button.title)
+                                replacement.setButtonType(.radio)
+                                replacement.isBordered = false
+                                replacement.target = button.target
+                                replacement.action = button.action
+                                button.cell = replacement
+                            }
+                            if variant == 4 { (button.cell as? MouseProbeCell)?.usesFullDrawingRect = true }
+                            if variant == 5 { button.setButtonType(.pushOnPushOff) }
+                            try sendMouseGesture(to: button, at: point)
+                            print("Gallery mouse probe \(variant): \(viewer.selectedGalleryLayout)")
+                        }
+                    }
                     throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: point, line: #line)
                 }
             }
@@ -756,6 +781,20 @@ enum RenderPreviews {
             else { throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: center, line: #line) }
         }
         print("Verified gallery mouse centers/edges, drag cancellation, and toolbar updates during tracking.")
+    }
+
+    private final class MouseProbeCell: NSButtonCell {
+        var usesFullDrawingRect = false
+
+        override func hitTest(for event: NSEvent, in cellFrame: NSRect, of controlView: NSView) -> NSCell.HitResult {
+            let result = super.hitTest(for: event, in: cellFrame, of: controlView)
+            print("Gallery cell hit: \(result), frame \(cellFrame)")
+            return [.contentArea, .trackableArea]
+        }
+
+        override func drawingRect(forBounds rect: NSRect) -> NSRect {
+            usesFullDrawingRect ? rect : super.drawingRect(forBounds: rect)
+        }
     }
 
     /// Sends queued mouse events through NSApplication so the window hit-tests and the button tracks its release.
