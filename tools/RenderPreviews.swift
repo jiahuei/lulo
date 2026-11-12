@@ -717,11 +717,14 @@ enum RenderPreviews {
                 CGPoint(x: bounds.midX, y: bounds.minY + 2),
                 CGPoint(x: bounds.midX, y: bounds.maxY - 2),
             ]
-            print("Gallery mouse geometry: \(button.title), frame \(button.frame), bounds \(bounds), insets \(button.alignmentRectInsets)")
-            print("Gallery mouse parent: \(String(describing: button.superview?.frame)), group \(layouts.frame)")
+            print("Gallery mouse geometry: \(button.title), frame \(button.frame), bounds \(bounds)")
+            print("Gallery mouse alignment insets: \(button.alignmentRectInsets)")
+            print("Gallery mouse parent: \(String(describing: button.superview?.frame))")
+            print("Gallery mouse group: \(layouts.frame)")
             for point in points {
                 let hit = layouts.hitTest(button.convert(point, to: layouts.superview))
-                print("Gallery mouse hit: \(point) -> \(String(describing: hit.map { type(of: $0) })), button \(hit === button)")
+                let name = hit.map { String(describing: type(of: $0)) } ?? "nil"
+                print("Gallery mouse hit: \(point) -> \(name), button \(hit === button)")
             }
             for point in points {
                 if mode == .preview { viewer.showRows() } else { viewer.showPreview() }
