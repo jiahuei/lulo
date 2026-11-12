@@ -740,6 +740,7 @@ enum RenderPreviews {
                 throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: outside, line: #line)
             }
             try sendMouseGesture(to: button, at: center) {
+                precondition(button.isHighlighted, "The toolbar update must run while the layout button is pressed")
                 viewer.windowDidResize(Notification(name: NSWindow.didResizeNotification, object: window))
             }
             guard viewer.selectedGalleryLayout == mode, layouts.selectedIndex == index,
@@ -775,6 +776,7 @@ enum RenderPreviews {
             return event
         }
         let down = try event(.leftMouseDown, at: point)
+        let drag = try end.map { try event(.leftMouseDragged, at: $0) }
         let up = try event(.leftMouseUp, at: end ?? point)
         var timer: Timer?
         defer {
@@ -798,7 +800,7 @@ enum RenderPreviews {
             timer = release
             RunLoop.main.add(release, forMode: .eventTracking)
             RunLoop.main.add(release, forMode: .default)
-            if let end { NSApp.postEvent(try event(.leftMouseDragged, at: end), atStart: true) }
+            if let drag { NSApp.postEvent(drag, atStart: true) }
         } else {
             NSApp.postEvent(up, atStart: true)
         }
