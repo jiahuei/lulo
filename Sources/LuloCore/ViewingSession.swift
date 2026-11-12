@@ -53,7 +53,7 @@ public struct Preferences: Equatable, Sendable {
 
     public init(
         sort: SortMethod = .name, ascending: Bool = true,
-        blurredBackground: Bool = false, galleryLayout: GalleryLayout = .rows,
+        blurredBackground: Bool = false, galleryLayout: GalleryLayout = .preview,
         rowsTargetHeight: Double = 200, previewTileSize: Double = 128
     ) {
         self.sort = sort
@@ -68,7 +68,7 @@ public struct Preferences: Equatable, Sendable {
         sort = defaults.string(forKey: "sortMethod").flatMap(SortMethod.init(rawValue:)) ?? .name
         ascending = defaults.object(forKey: "sortAscending") as? Bool ?? true
         blurredBackground = defaults.bool(forKey: "blurredBackground")
-        galleryLayout = defaults.string(forKey: "galleryLayout").flatMap(GalleryLayout.init(rawValue:)) ?? .rows
+        galleryLayout = defaults.string(forKey: "galleryLayout").flatMap(GalleryLayout.init(rawValue:)) ?? .preview
         rowsTargetHeight = GalleryLayout.rows.snappedSize(defaults.object(forKey: "rowsTargetHeight") as? Double ?? 200)
         previewTileSize = GalleryLayout.preview.snappedSize(
             defaults.object(forKey: "previewTileSize") as? Double ?? 128)
