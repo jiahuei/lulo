@@ -736,7 +736,8 @@ enum RenderPreviews {
                     slider.accessibilityLabel() == (mode == .preview ? "Thumbnail size" : "Row height")
                 else {
                     if mode == .preview {
-                        print("Gallery cell drawing rect: \(String(describing: button.cell?.drawingRect(forBounds: bounds)))")
+                        let drawingRect = button.cell?.drawingRect(forBounds: bounds)
+                        print("Gallery cell drawing rect: \(String(describing: drawingRect))")
                         for variant in 0..<6 {
                             viewer.showRows()
                             if variant == 0 { button.isBordered = true }
