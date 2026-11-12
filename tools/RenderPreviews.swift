@@ -763,7 +763,8 @@ enum RenderPreviews {
     ) throws {
         guard let window = button.window else { throw PreviewError.missingWindow }
         // Native tracking blocks this call; report a missing release instead of hanging the entire CI job.
-        let description = "\(button.title) at \(point), release \(end ?? point), held \(duringTracking != nil)"
+        let description =
+            "\(button.accessibilityLabel() ?? button.title) at \(point), release \(end ?? point), held \(duringTracking != nil)"
         let fail: @Sendable () -> Void = {
             FileHandle.standardError.write(Data("Mouse tracking timed out: \(description)\n".utf8))
             exit(1)
