@@ -741,13 +741,6 @@ enum RenderPreviews {
                     collection.selectionIndexPaths == selected,
                     posterButton.isHiddenOrHasHiddenAncestor == (previous == .rows)
                 else {
-                    print(
-                        "Outside release: width=\(root.bounds.width), before=\(previous.rawValue), "
-                            + "after=\(viewer.selectedGalleryLayout.rawValue), state=\(button.state.rawValue), "
-                            + "highlighted=\(button.isHighlighted), selectionSame=\(collection.selectionIndexPaths == selected), "
-                            + "posterHidden=\(posterButton.isHiddenOrHasHiddenAncestor), "
-                            + "buttonFrame=\(button.frame), bounds=\(button.bounds), "
-                            + "lastEvent=\(String(describing: NSApp.currentEvent?.type))")
                     throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: outside, line: #line)
                 }
             }
@@ -790,23 +783,6 @@ enum RenderPreviews {
         let down = try event(.leftMouseDown, at: point)
         let drag = try end.map { try event(.leftMouseDragged, at: $0) }
         let up = try event(.leftMouseUp, at: end ?? point)
-        var monitor: Any?
-        if end != nil {
-            monitor = NSEvent.addLocalMonitorForEvents(
-                matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
-            ) { event in
-                MainActor.assumeIsolated {
-                    print(
-                        "Mouse event: type=\(event.type.rawValue), "
-                            + "point=\(button.convert(event.locationInWindow, from: nil))")
-                }
-                return event
-            }
-            print(
-                "Release hit: \(String(describing: button.cell?.hitTest(for: up, in: button.bounds, of: button))), "
-                    + "cellSize=\(String(describing: button.cell?.cellSize))")
-        }
-        defer { if let monitor { NSEvent.removeMonitor(monitor) } }
         var timer: Timer?
         defer {
             timer?.invalidate()

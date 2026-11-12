@@ -6,6 +6,9 @@ import AppKit
 final class CapsuleButton: NSButton {
     var glyph: NSImage? {
         didSet {
+            // The native cell still hit-tests its title even though we draw only the glyph.
+            // Hide that title so icon buttons cannot activate after a release outside their bounds.
+            imagePosition = glyph == nil ? .noImage : .imageOnly
             needsDisplay = true
             invalidateIntrinsicContentSize()
         }
