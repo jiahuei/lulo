@@ -741,6 +741,13 @@ enum RenderPreviews {
                     collection.selectionIndexPaths == selected,
                     posterButton.isHiddenOrHasHiddenAncestor == (previous == .rows)
                 else {
+                    print(
+                        "Outside release: width=\(root.bounds.width), before=\(previous.rawValue), "
+                            + "after=\(viewer.selectedGalleryLayout.rawValue), state=\(button.state.rawValue), "
+                            + "highlighted=\(button.isHighlighted), selectionSame=\(collection.selectionIndexPaths == selected), "
+                            + "posterHidden=\(posterButton.isHiddenOrHasHiddenAncestor), "
+                            + "buttonFrame=\(button.frame), bounds=\(button.bounds), "
+                            + "lastEvent=\(String(describing: NSApp.currentEvent?.type))")
                     throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: outside, line: #line)
                 }
             }
