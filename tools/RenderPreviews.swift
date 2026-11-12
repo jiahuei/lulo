@@ -692,6 +692,113 @@ enum RenderPreviews {
         print("Verified Trash confirmation, cancellation, failure, next selection, last image, and stale completion.")
     }
 
+    /// Ensures mouse hit testing and native tracking select each layout once, including after a toolbar update.
+    private static func verifyGalleryMouseTracking(_ viewer: ViewerController) throws {
+        guard let window = viewer.window, let root = window.contentView,
+            let layouts = toolbarControl(window, "GalleryLayout") as? ButtonChoices,
+            let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
+            let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
+            let posterButton = descendants(gallery).compactMap({ $0 as? ProminentButton })
+                .first(where: { $0.title == "View" }),
+            let slider = toolbarControl(window, "ThumbnailSize") as? NSSlider
+        else { throw PreviewError.galleryFailed(line: #line) }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        settle()
+        let selected = collection.selectionIndexPaths
+        for index in layouts.buttons.indices {
+            let button = layouts.buttons[index]
+            let mode: GalleryLayout = index == 0 ? .preview : .rows
+            let bounds = button.bounds
+            let center = CGPoint(x: bounds.midX, y: bounds.midY)
+            let points = [
+                center, CGPoint(x: bounds.minX + 2, y: bounds.midY),
+                CGPoint(x: bounds.maxX - 2, y: bounds.midY),
+                CGPoint(x: bounds.midX, y: bounds.minY + 2),
+                CGPoint(x: bounds.midX, y: bounds.maxY - 2),
+            ]
+            for point in points {
+                if mode == .preview { viewer.showRows() } else { viewer.showPreview() }
+                try sendMouseGesture(to: button, at: point)
+                guard viewer.selectedGalleryLayout == mode, layouts.selectedIndex == index,
+                    button.state == .on, !button.isHighlighted,
+                    collection.selectionIndexPaths == selected,
+                    posterButton.isHiddenOrHasHiddenAncestor == (mode == .rows),
+                    slider.accessibilityLabel() == (mode == .preview ? "Thumbnail size" : "Row height")
+                else {
+                    throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: point, line: #line)
+                }
+            }
+            if mode == .preview { viewer.showRows() } else { viewer.showPreview() }
+            let previous = viewer.selectedGalleryLayout
+            let outside = CGPoint(x: center.x, y: bounds.minY - 20)
+            try sendMouseGesture(to: button, at: center, releaseAt: outside)
+            guard viewer.selectedGalleryLayout == previous, collection.selectionIndexPaths == selected,
+                posterButton.isHiddenOrHasHiddenAncestor == (previous == .rows)
+            else {
+                throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: outside, line: #line)
+            }
+            try sendMouseGesture(to: button, at: center) {
+                viewer.windowDidResize(Notification(name: NSWindow.didResizeNotification, object: window))
+            }
+            guard viewer.selectedGalleryLayout == mode, layouts.selectedIndex == index,
+                collection.selectionIndexPaths == selected,
+                posterButton.isHiddenOrHasHiddenAncestor == (mode == .rows)
+            else { throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: center, line: #line) }
+        }
+        print("Verified gallery mouse centers/edges, drag cancellation, and toolbar updates during tracking.")
+    }
+
+    /// Sends queued mouse events through NSApplication so the window hit-tests and the button tracks its release.
+    private static func sendMouseGesture(
+        to button: NSButton, at point: CGPoint, releaseAt end: CGPoint? = nil,
+        duringTracking: (@MainActor @Sendable () -> Void)? = nil
+    ) throws {
+        guard let window = button.window else { throw PreviewError.missingWindow }
+        func event(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
+            guard
+                let event = NSEvent.mouseEvent(
+                    with: type, location: button.convert(point, to: nil), modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
+            else { throw PreviewError.galleryFailed(line: #line) }
+            return event
+        }
+        let down = try event(.leftMouseDown, at: point)
+        let up = try event(.leftMouseUp, at: end ?? point)
+        var timer: Timer?
+        defer {
+            timer?.invalidate()
+            // A rejected mouse-down can leave its release queued; do not contaminate the next gesture.
+            while let event = NSApp.nextEvent(
+                matching: [.leftMouseDragged, .leftMouseUp], until: Date(), inMode: .default, dequeue: true)
+            {
+                NSApp.sendEvent(event)
+            }
+        }
+        if let duringTracking {
+            // Withhold mouse-up until AppKit enters its tracking loop, establishing the overlap deterministically.
+            let release = Timer(timeInterval: 0.01, repeats: false) { _ in
+                MainActor.assumeIsolated {
+                    duringTracking()
+                    NSApp.postEvent(up, atStart: true)
+                }
+            }
+            timer = release
+            RunLoop.main.add(release, forMode: .eventTracking)
+        } else {
+            NSApp.postEvent(up, atStart: true)
+            if let end { NSApp.postEvent(try event(.leftMouseDragged, at: end), atStart: true) }
+        }
+        NSApp.postEvent(down, atStart: true)
+        guard
+            let queued = NSApp.nextEvent(
+                matching: .leftMouseDown, until: Date(), inMode: .default, dequeue: true)
+        else { throw PreviewError.galleryFailed(line: #line) }
+        NSApp.sendEvent(queued)
+        guard timer?.isValid != true else { throw PreviewError.galleryFailed(line: #line) }
+    }
+
     /// Ensures Preview/Rows buttons select their layouts and preserve selection and alignment down to 720 pt.
     private static func verifyD9Gallery(_ viewer: ViewerController, output: URL) throws {
         guard let window = viewer.window, let root = window.contentView,
@@ -703,6 +810,7 @@ enum RenderPreviews {
         let selected = collection.selectionIndexPaths
         for width in [1000.0, 720] {
             window.setContentSize(NSSize(width: width, height: 680))
+            try verifyGalleryMouseTracking(viewer)
             for preview in [true, false] {
                 layouts.buttons[preview ? 0 : 1].performClick(nil)
                 settle()
@@ -1533,6 +1641,7 @@ enum RenderPreviews {
         case smallImageFailed(mode: String, scale: Int, rect: CGRect)
         case missingWindow, imageDidNotLoad, captureFailed, clippedCanvas, missingPopover
         case galleryFailed(line: Int)
+        case galleryMouseFailed(layout: String, point: CGPoint, line: Int)
         case galleryRatingPlacementFailed
         case trashFailed
         case refreshFailed(line: Int)
