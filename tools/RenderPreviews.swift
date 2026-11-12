@@ -757,10 +757,11 @@ enum RenderPreviews {
         guard let window = button.window else { throw PreviewError.missingWindow }
         // Native tracking blocks this call; report a missing release instead of hanging the entire CI job.
         let description = "\(button.title) at \(point), release \(end ?? point), held \(duringTracking != nil)"
-        let timeout = DispatchWorkItem {
+        let fail: @Sendable () -> Void = {
             FileHandle.standardError.write(Data("Mouse tracking timed out: \(description)\n".utf8))
             exit(1)
         }
+        let timeout = DispatchWorkItem(block: fail)
         DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: timeout)
         defer { timeout.cancel() }
         func event(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
