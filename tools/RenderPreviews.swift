@@ -790,16 +790,23 @@ enum RenderPreviews {
         let down = try event(.leftMouseDown, at: point)
         let drag = try end.map { try event(.leftMouseDragged, at: $0) }
         let up = try event(.leftMouseUp, at: end ?? point)
-        let monitor = end == nil ? nil : NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { event in
-            MainActor.assumeIsolated {
-                print("Mouse event: type=\(event.type.rawValue), point=\(button.convert(event.locationInWindow, from: nil))")
+        var monitor: Any?
+        if end != nil {
+            monitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+            ) { event in
+                MainActor.assumeIsolated {
+                    print(
+                        "Mouse event: type=\(event.type.rawValue), "
+                            + "point=\(button.convert(event.locationInWindow, from: nil))")
+                }
+                return event
             }
-            return event
+            print(
+                "Release hit: \(String(describing: button.cell?.hitTest(up, in: button.bounds, of: button))), "
+                    + "cellSize=\(String(describing: button.cell?.cellSize))")
         }
         defer { if let monitor { NSEvent.removeMonitor(monitor) } }
-        if end != nil {
-            print("Release hit: \(String(describing: button.cell?.hitTest(up, in: button.bounds, of: button))), cellSize=\(String(describing: button.cell?.cellSize))")
-        }
         var timer: Timer?
         defer {
             timer?.invalidate()
