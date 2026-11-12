@@ -947,7 +947,10 @@ enum RenderPreviews {
             choices.buttons[original].performClick(nil)
         }
         let choices = buttons.filter { $0.action == fiveStars.action }
-        guard choices.count == 9, choices.allSatisfy({ $0.state == .off }) else {
+        let formatChoices = buttons.filter { ImageFormat(rawValue: $0.title) != nil }
+        guard Set(formatChoices.map(\.title)) == Set(ImageFormat.allCases.map(\.rawValue)),
+            choices.count == 6 + ImageFormat.allCases.count, choices.allSatisfy({ $0.state == .off })
+        else {
             throw PreviewError.filterDidNotClear
         }
         guard

@@ -38,7 +38,7 @@ xcodebuild -project Lulo.xcodeproj -scheme Lulo -configuration Debug -destinatio
 
 The shared Lulo scheme builds `build/Build/Products/Debug/Lulo.app`. The unsigned build validates compilation and static analysis; it does not validate sandbox enforcement. For interactive testing, open `Lulo.xcodeproj`, select the Lulo scheme, select a local signing identity/team in Xcode without committing those settings, and run with `App/Lulo.entitlements`. The entitlements enable App Sandbox and user-selected read/write file access for the explicit Move to Trash action. Follow [the macOS verification checklist](docs/MACOS-VERIFICATION.md).
 
-The Swift package contains `LuloCore` for preferences, ordering, selection, and zoom, and `LuloImaging` for Image I/O and file access. Tests generate small synthetic images in temporary directories, including HEIF through macOS Image I/O. There are no external package dependencies. Linux cannot run the Image I/O tests or build the application.
+The Swift package contains `LuloCore` for preferences, ordering, selection, and zoom, and `LuloImaging` for Image I/O and file access. Tests generate small synthetic images in temporary directories, including HEIF through macOS Image I/O, and cover the owner-supplied BMP, JPEG XL, WebP, and HEIC files documented in [the fixture README](Tests/LuloImagingTests/Fixtures/README.md). There are no external package dependencies. Linux cannot run the Image I/O tests or build the application.
 
 Format changed Swift files with the pinned toolchain:
 
