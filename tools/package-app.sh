@@ -21,6 +21,10 @@ trap 'rm -rf "$extracted"' EXIT
 ditto -x -k "$archive" "$extracted"
 app="$extracted/Lulo.app"
 test -x "$app/Contents/MacOS/Lulo"
+# Ensures the delivered app declares the Loupe icon and includes a readable icon file.
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Contents/Info.plist")" = AppIcon
+icon_file=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app/Contents/Info.plist")
+iconutil -c iconset "$app/Contents/Resources/${icon_file%.icns}.icns" -o "$extracted/AppIcon.iconset"
 lipo "$app/Contents/MacOS/Lulo" -verify_arch arm64 x86_64
 codesign --verify --deep --strict --verbose=2 "$app"
 codesign --display --entitlements - --xml "$app" > "$extracted/entitlements.plist"

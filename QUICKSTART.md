@@ -6,6 +6,7 @@ Open `Lulo.xcodeproj` with Xcode 16.4 and run the shared **Lulo** scheme. See [B
 
 - [Product behavior and decisions](docs/PRODUCT.md)
 - [Interactive macOS verification](docs/MACOS-VERIFICATION.md)
+- [App icon artwork and exports](docs/APP-ICON.md)
 - [Agent guidelines](AGENTS.md)
 - [Swift and macOS conventions](docs/CONVENTIONS.md)
 
@@ -53,7 +54,7 @@ With the pinned Xcode toolchain selected, run:
 bash tools/package-app.sh
 ```
 
-This builds a universal Release app, signs it ad-hoc with `App/Lulo.entitlements`, and writes `build/distribution/Lulo-macOS-universal.zip`. It extracts that ZIP into a temporary directory, checks both architectures, executable permissions, signature integrity, and exact sandbox entitlements, then performs a three-second launch and prints the ZIP's SHA-256 checksum. It does not require a Developer ID certificate or publish a release.
+This builds a universal Release app, signs it ad-hoc with `App/Lulo.entitlements`, and writes `build/distribution/Lulo-macOS-universal.zip`. It extracts that ZIP into a temporary directory, checks both architectures, executable permissions, app icon metadata and ICNS decoding, signature integrity, and exact sandbox entitlements, then performs a three-second launch and prints the ZIP's SHA-256 checksum. It does not require a Developer ID certificate or publish a release.
 
 ## Native UI previews
 
