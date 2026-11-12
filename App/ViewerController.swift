@@ -34,7 +34,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private let backgroundRenderer = BackgroundRenderer()
     private let blurred = CapsuleButton()
     private let galleryLayout = ButtonChoices(
-        labels: ["Rows", "Preview"], symbols: ["rectangle.grid.1x2", "sidebar.squares.left"])
+        labels: ["Preview", "Rows"], symbols: ["sidebar.squares.left", "rectangle.grid.1x2"])
     private let sizeSlider = ThumbnailSizeSlider()
     private var gallerySizeControls: NSStackView?
     private let smaller = CapsuleButton()
@@ -152,8 +152,8 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         configureButton(
             smaller, title: "Smaller thumbnails", symbol: "square.grid.3x3", action: #selector(smallerThumbnails))
         configureButton(larger, title: "Larger thumbnails", symbol: "square", action: #selector(largerThumbnails))
-        galleryLayout.buttons[0].setLabel("Rows (⌘1)")
-        galleryLayout.buttons[1].setLabel("Preview (⌘2)")
+        galleryLayout.buttons[0].setLabel("Preview (⌘2)")
+        galleryLayout.buttons[1].setLabel("Rows (⌘1)")
         sizeSlider.controlSize = .small
         sizeSlider.isContinuous = true
         sizeSlider.target = self
@@ -868,7 +868,7 @@ extension ViewerController {
 
     @objc func showRows() { chooseLayout(.rows) }
     @objc func showPreview() { chooseLayout(.preview) }
-    @objc private func layoutChanged() { chooseLayout(galleryLayout.selectedIndex == 0 ? .rows : .preview) }
+    @objc private func layoutChanged() { chooseLayout(galleryLayout.selectedIndex == 0 ? .preview : .rows) }
     private func chooseLayout(_ layout: GalleryLayout) {
         browsePopover.performClose(nil)
         session.preferences.galleryLayout = layout
@@ -916,7 +916,7 @@ extension ViewerController {
         larger.isHidden = smaller.isHidden
         sliderWidth?.constant = width < 900 ? 64 : 92
         let mode = session.preferences.galleryLayout
-        galleryLayout.selectedIndex = mode == .rows ? 0 : 1
+        galleryLayout.selectedIndex = mode == .preview ? 0 : 1
         sizeSlider.galleryLayout = mode
         sizeSlider.minValue = mode.sizeRange.lowerBound
         sizeSlider.maxValue = mode.sizeRange.upperBound

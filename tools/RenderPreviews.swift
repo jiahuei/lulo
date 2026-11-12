@@ -414,7 +414,7 @@ enum RenderPreviews {
         canvas.mouseDown(with: event)
     }
 
-    /// Ensures the grid preserves ratings, previews, selection, and multi-select filters while disabling Trash.
+    /// Ensures Gallery defaults to Preview and its grid preserves ratings, selection, filters, and Trash restrictions.
     private static func verifyGallery(fixture: URL, output: URL) throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -435,6 +435,7 @@ enum RenderPreviews {
             let canvas = descendants(root).compactMap({ $0 as? ImageCanvas }).first,
             let display = toolbarControl(window, "Display")
                 as? ButtonChoices,
+            let layouts = toolbarControl(window, "GalleryLayout") as? ButtonChoices,
             let trash = toolbarControl(window, "Trash") as? NSButton
         else { throw PreviewError.galleryFailed(line: #line) }
         defer { window.close() }
@@ -482,6 +483,11 @@ enum RenderPreviews {
         settle()
         viewer.useAuthorizedFolder(FileAccess(url: folder))
         viewer.toggleGallery()
+        guard viewer.selectedGalleryLayout == .preview, layouts.selectedIndex == 0,
+            layouts.buttons.map({ $0.accessibilityLabel() }) == ["Preview (⌘2)", "Rows (⌘1)"]
+        else { throw PreviewError.galleryFailed(line: #line) }
+        // The following aspect-ratio checks exercise Rows rather than Preview's square crops.
+        layouts.buttons[1].performClick(nil)
         for _ in 0..<4 { viewer.smallerThumbnails() }
         try waitUntil {
             collection.numberOfItems(inSection: 0) == 81
@@ -686,24 +692,27 @@ enum RenderPreviews {
         print("Verified Trash confirmation, cancellation, failure, next selection, last image, and stale completion.")
     }
 
-    /// Ensures D9 layouts preserve selection, toolbar order, and caption alignment down to 720 pt.
+    /// Ensures Preview/Rows buttons select their layouts and preserve selection and alignment down to 720 pt.
     private static func verifyD9Gallery(_ viewer: ViewerController, output: URL) throws {
         guard let window = viewer.window, let root = window.contentView,
             let gallery = descendants(root).compactMap({ $0 as? GalleryView }).first,
             let collection = descendants(gallery).compactMap({ $0 as? NSCollectionView }).first,
+            let layouts = toolbarControl(window, "GalleryLayout") as? ButtonChoices,
             let slider = toolbarControl(window, "ThumbnailSize") as? NSSlider
         else { throw PreviewError.galleryFailed(line: #line) }
         let selected = collection.selectionIndexPaths
         for width in [1000.0, 720] {
             window.setContentSize(NSSize(width: width, height: 680))
-            for preview in [false, true] {
-                if preview { viewer.showPreview() } else { viewer.showRows() }
+            for preview in [true, false] {
+                layouts.buttons[preview ? 0 : 1].performClick(nil)
                 settle()
                 guard collection.selectionIndexPaths == selected,
+                    viewer.selectedGalleryLayout == (preview ? .preview : .rows),
+                    layouts.selectedIndex == (preview ? 0 : 1),
+                    layouts.buttons[layouts.selectedIndex].accessibilityValue() as? NSNumber == NSNumber(value: true),
                     slider.accessibilityLabel() == (preview ? "Thumbnail size" : "Row height"),
                     let galleryButton = toolbarControl(window, "Gallery") as? CapsuleButton,
                     !galleryButton.isVisuallySelected,
-                    let layouts = toolbarControl(window, "GalleryLayout") as? ButtonChoices,
                     layouts.buttons.allSatisfy({ !$0.isVisuallySelected && !$0.isHighlighted })
                 else { throw PreviewError.galleryFailed(line: #line) }
                 let before = slider.doubleValue
@@ -781,7 +790,10 @@ enum RenderPreviews {
                 }
             }
         }
+        viewer.showPreview()
+        guard layouts.selectedIndex == 0 else { throw PreviewError.galleryFailed(line: #line) }
         viewer.showRows()
+        guard layouts.selectedIndex == 1 else { throw PreviewError.galleryFailed(line: #line) }
         if viewer.isBlurredBackground { viewer.toggleBlurredBackground() }
         window.appearance = NSAppearance(named: .aqua)
         window.setContentSize(NSSize(width: 1000, height: 680))

@@ -64,18 +64,19 @@ func filterBadgeCountsCheckedValues() {
     #expect(filter.activeCount == 0)
 }
 
-/// Ensures presentation preferences default to plain Rows and persist independently of opening, sort, and filters.
-@Test
-func presentationPreferencesRoundTrip() throws {
+/// Ensures Preview is the default and fallback while either saved layout survives reloads and explicit opens.
+@Test(arguments: GalleryLayout.allCases)
+func presentationPreferencesRoundTrip(_ layout: GalleryLayout) throws {
     let name = UUID().uuidString
     let defaults = try #require(UserDefaults(suiteName: name))
     defer { defaults.removePersistentDomain(forName: name) }
     let initial = Preferences(defaults: defaults)
-    #expect(!initial.blurredBackground && initial.galleryLayout == .rows)
+    #expect(initial == Preferences())
+    #expect(!initial.blurredBackground && initial.galleryLayout == .preview)
     #expect(initial.rowsTargetHeight == 200 && initial.previewTileSize == 128)
     var saved = initial
     saved.blurredBackground = true
-    saved.galleryLayout = .preview
+    saved.galleryLayout = layout
     saved.rowsTargetHeight = 120
     saved.previewTileSize = 188
     saved.save(to: defaults)
@@ -87,7 +88,7 @@ func presentationPreferencesRoundTrip() throws {
     defaults.set(-20.0, forKey: "rowsTargetHeight")
     defaults.set(900.0, forKey: "previewTileSize")
     let recovered = Preferences(defaults: defaults)
-    #expect(recovered.galleryLayout == .rows)
+    #expect(recovered.galleryLayout == .preview)
     #expect(recovered.rowsTargetHeight == 120 && recovered.previewTileSize == 220)
 }
 
