@@ -717,6 +717,12 @@ enum RenderPreviews {
                 CGPoint(x: bounds.midX, y: bounds.minY + 2),
                 CGPoint(x: bounds.midX, y: bounds.maxY - 2),
             ]
+            print("Gallery mouse geometry: \(button.title), frame \(button.frame), bounds \(bounds), insets \(button.alignmentRectInsets)")
+            print("Gallery mouse parent: \(String(describing: button.superview?.frame)), group \(layouts.frame)")
+            for point in points {
+                let hit = layouts.hitTest(button.convert(point, to: layouts.superview))
+                print("Gallery mouse hit: \(point) -> \(String(describing: hit.map { type(of: $0) })), button \(hit === button)")
+            }
             for point in points {
                 if mode == .preview { viewer.showRows() } else { viewer.showPreview() }
                 try sendMouseGesture(to: button, at: point)
@@ -778,11 +784,12 @@ enum RenderPreviews {
         }
         if let duringTracking {
             // Withhold mouse-up until AppKit enters its tracking loop, establishing the overlap deterministically.
+            let complete: @MainActor @Sendable () -> Void = {
+                duringTracking()
+                NSApp.postEvent(up, atStart: true)
+            }
             let release = Timer(timeInterval: 0.01, repeats: false) { _ in
-                MainActor.assumeIsolated {
-                    duringTracking()
-                    NSApp.postEvent(up, atStart: true)
-                }
+                MainActor.assumeIsolated { complete() }
             }
             timer = release
             RunLoop.main.add(release, forMode: .eventTracking)
