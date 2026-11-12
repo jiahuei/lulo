@@ -729,15 +729,20 @@ enum RenderPreviews {
                     throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: point, line: #line)
                 }
             }
-            if mode == .preview { viewer.showRows() } else { viewer.showPreview() }
-            let previous = viewer.selectedGalleryLayout
-            let outside = CGPoint(x: center.x, y: bounds.minY - 20)
-            try sendMouseGesture(to: button, at: center, releaseAt: outside)
-            guard viewer.selectedGalleryLayout == previous, !button.isHighlighted, button.state == .off,
-                collection.selectionIndexPaths == selected,
-                posterButton.isHiddenOrHasHiddenAncestor == (previous == .rows)
-            else {
-                throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: outside, line: #line)
+            let outsidePoints = [
+                CGPoint(x: center.x, y: bounds.minY - 20), CGPoint(x: center.x, y: bounds.maxY + 20),
+                CGPoint(x: bounds.minX - 20, y: center.y), CGPoint(x: bounds.maxX + 20, y: center.y),
+            ]
+            for outside in outsidePoints {
+                if mode == .preview { viewer.showRows() } else { viewer.showPreview() }
+                let previous = viewer.selectedGalleryLayout
+                try sendMouseGesture(to: button, at: center, releaseAt: outside)
+                guard viewer.selectedGalleryLayout == previous, !button.isHighlighted, button.state == .off,
+                    collection.selectionIndexPaths == selected,
+                    posterButton.isHiddenOrHasHiddenAncestor == (previous == .rows)
+                else {
+                    throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: outside, line: #line)
+                }
             }
             try sendMouseGesture(to: button, at: center) {
                 precondition(button.isHighlighted, "The toolbar update must run while the layout button is pressed")
@@ -788,11 +793,11 @@ enum RenderPreviews {
                 NSApp.sendEvent(event)
             }
         }
-        if duringTracking != nil || end != nil {
+        if duringTracking != nil {
             // Withhold mouse-up until AppKit enters its tracking loop, establishing the overlap deterministically.
             let complete: @MainActor @Sendable () -> Void = {
                 duringTracking?()
-                NSApp.postEvent(up, atStart: true)
+                NSApp.postEvent(up, atStart: false)
             }
             let release = Timer(timeInterval: 0.01, repeats: false) { _ in
                 MainActor.assumeIsolated { complete() }
@@ -800,10 +805,12 @@ enum RenderPreviews {
             timer = release
             RunLoop.main.add(release, forMode: .eventTracking)
             RunLoop.main.add(release, forMode: .default)
-            if let drag { NSApp.postEvent(drag, atStart: true) }
         } else {
             NSApp.postEvent(up, atStart: true)
         }
+        // Prepend in reverse order so even an immediate release follows the drag. A timed
+        // mouse-up inserted at the front can overtake the drag and invalidate cancellation checks.
+        if let drag { NSApp.postEvent(drag, atStart: true) }
         NSApp.postEvent(down, atStart: true)
         guard
             let queued = NSApp.nextEvent(
