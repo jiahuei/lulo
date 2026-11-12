@@ -733,7 +733,8 @@ enum RenderPreviews {
             let previous = viewer.selectedGalleryLayout
             let outside = CGPoint(x: center.x, y: bounds.minY - 20)
             try sendMouseGesture(to: button, at: center, releaseAt: outside)
-            guard viewer.selectedGalleryLayout == previous, collection.selectionIndexPaths == selected,
+            guard viewer.selectedGalleryLayout == previous, !button.isHighlighted, button.state == .off,
+                collection.selectionIndexPaths == selected,
                 posterButton.isHiddenOrHasHiddenAncestor == (previous == .rows)
             else {
                 throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: outside, line: #line)
@@ -746,7 +747,7 @@ enum RenderPreviews {
                 posterButton.isHiddenOrHasHiddenAncestor == (mode == .rows)
             else { throw PreviewError.galleryMouseFailed(layout: mode.rawValue, point: center, line: #line) }
         }
-        print("Verified gallery mouse centers/edges, drag cancellation, and toolbar updates during tracking.")
+        print("Verified gallery mouse centers/edges, release-outside cancellation, and updates during tracking.")
     }
 
     /// Sends queued mouse events through NSApplication so the window hit-tests and the button tracks its release.
@@ -780,7 +781,7 @@ enum RenderPreviews {
             timer?.invalidate()
             // A rejected mouse-down can leave its release queued; do not contaminate the next gesture.
             while let event = NSApp.nextEvent(
-                matching: [.leftMouseDragged, .leftMouseUp], until: Date(), inMode: .default, dequeue: true)
+                matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true)
             {
                 NSApp.sendEvent(event)
             }
@@ -798,7 +799,6 @@ enum RenderPreviews {
             RunLoop.main.add(release, forMode: .eventTracking)
         } else {
             NSApp.postEvent(up, atStart: true)
-            if let end { NSApp.postEvent(try event(.leftMouseDragged, at: end), atStart: true) }
         }
         NSApp.postEvent(down, atStart: true)
         guard
