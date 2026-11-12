@@ -4,12 +4,18 @@ public enum ImageFormat: String, CaseIterable, Sendable {
     case jpeg = "JPEG"
     case png = "PNG"
     case heif = "HEIF"
+    case bmp = "BMP"
+    case jpegXL = "JPEG XL"
+    case webP = "WebP"
 
     public init?(url: URL) {
         switch url.pathExtension.lowercased() {
         case "jpg", "jpeg": self = .jpeg
         case "png": self = .png
         case "heic", "heif": self = .heif
+        case "bmp": self = .bmp
+        case "jxl": self = .jpegXL
+        case "webp": self = .webP
         default: return nil
         }
     }

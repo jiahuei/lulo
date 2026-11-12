@@ -59,7 +59,7 @@ func filterBadgeCountsCheckedValues() {
     #expect(filter.activeCount == 3)
     filter.ratings = Set(0...5)
     filter.formats = Set(ImageFormat.allCases)
-    #expect(filter.activeCount == 9)
+    #expect(filter.activeCount == 6 + ImageFormat.allCases.count)
     filter = ImageFilter()
     #expect(filter.activeCount == 0)
 }

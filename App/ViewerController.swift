@@ -240,7 +240,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         gallery.clearFilters = { [weak self] in self?.clearFilters() }
         canvas.resetZoom()
         canvas.showMessage(
-            "Open an image.", detail: "View JPEG, PNG, and HEIF images.",
+            "Open an image.", detail: "View JPEG/JPG, PNG, HEIF/HEIC, BMP, JPEG XL, and WebP images.",
             actionTitle: "Open Image", action: { [weak self] in self?.openPanel() })
         updateStatus()
         window.makeFirstResponder(canvas)
@@ -286,8 +286,15 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         ratings.columnSpacing = 10
         ratings.xPlacement = .fill
         ratingButtons[0].widthAnchor.constraint(equalTo: ratingButtons[3].widthAnchor).isActive = true
-        let formats = NSStackView(views: formatButtons)
-        formats.spacing = 16
+        let formats = NSGridView(views: [
+            [formatButtons[0], formatButtons[3]],
+            [formatButtons[1], formatButtons[4]],
+            [formatButtons[2], formatButtons[5]],
+        ])
+        formats.rowSpacing = 6
+        formats.columnSpacing = 10
+        formats.xPlacement = .fill
+        formatButtons[0].widthAnchor.constraint(equalTo: formatButtons[3].widthAnchor).isActive = true
         let note = NSTextField(
             wrappingLabelWithString:
                 "Select any matching values in each group. No checkmarks means all values. Rating and file type apply together."
@@ -710,7 +717,9 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         if let index = entries.firstIndex(where: { $0.url == session.selectedURL }) {
             status.stringValue = "\(index + 1) of \(entries.count)"
         } else {
-            status.stringValue = openedURL == nil ? "JPEG · PNG · HEIF" : "\(entries.count) images"
+            status.stringValue =
+                openedURL == nil
+                ? ImageFormat.allCases.map(\.rawValue).joined(separator: " · ") : "\(entries.count) images"
         }
         if changeMonitor?.isActive == false {
             status.stringValue += " · Automatic refresh unavailable; use Refresh"

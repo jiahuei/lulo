@@ -4,7 +4,7 @@ I built this image viewer because I looked around and I couldn't find any image 
 
 Built with native macOS controls, Lulo keeps your images front and center. No editing, catalogs, accounts, or cloud services.
 
-- **Open JPEG, PNG, and HEIF images**, including JPG and HEIC files.
+- **Open JPEG/JPG, PNG, HEIF/HEIC, BMP, JPEG XL, and WebP images**.
 - **Browse with the arrow keys** after granting access to the containing folder.
 - **See the folder at a glance** with Gallery (Command-G). Double-click a thumbnail or press Return to view the selected image.
 - **Fit, zoom, and pan** with fit-to-window and 100% views, scroll zoom, and drag panning.
