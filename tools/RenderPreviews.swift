@@ -736,6 +736,9 @@ enum RenderPreviews {
                     slider.accessibilityLabel() == (mode == .preview ? "Thumbnail size" : "Row height")
                 else {
                     if mode == .preview {
+                        print("Gallery failed state: \(viewer.selectedGalleryLayout), index \(layouts.selectedIndex)")
+                        print("Gallery failed button: \(button.state), highlighted \(button.isHighlighted)")
+                        print("Gallery failed poster hidden: \(posterButton.isHiddenOrHasHiddenAncestor)")
                         let drawingRect = button.cell?.drawingRect(forBounds: bounds)
                         print("Gallery cell drawing rect: \(String(describing: drawingRect))")
                         for variant in 0..<6 {
