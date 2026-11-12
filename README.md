@@ -21,19 +21,19 @@ Requires **macOS 14 or later**. Supports Apple Silicon and Intel Macs. RAW image
 
 ### Gallery with preview
 
-![Lulo gallery with a large selected-image preview and thumbnail grid](01-lulo-gallery-preview-s.jpg)
+![Lulo gallery with a large selected-image preview and thumbnail grid](docs/screenshots/01-lulo-gallery-preview-s.jpg)
 
 ### Gallery rows
 
-![Lulo gallery displaying images in rows with embedded star ratings](02-lulo-galery-rows-s.jpg)
+![Lulo gallery displaying images in rows with embedded star ratings](docs/screenshots/02-lulo-galery-rows-s.jpg)
 
 ### Image metadata
 
-![Lulo image viewer with the metadata sidebar open](03-lulo-image-metadata-s.jpg)
+![Lulo image viewer with the metadata sidebar open](docs/screenshots/03-lulo-image-metadata-s.jpg)
 
 ### Sort and filter
 
-![Lulo image viewer with sorting and rating and file type filters](04-lulo-image-sort-s.jpg)
+![Lulo image viewer with sorting and rating and file type filters](docs/screenshots/04-lulo-image-sort-s.jpg)
 
 ## Try Lulo
 
