@@ -53,6 +53,7 @@ final class RatingChip: NSTextField {
 
 @MainActor
 final class BreadcrumbView: NSView {
+    let rating = RatingChip()
     private let symbol = NSImageView()
     private let parent = NSTextField(labelWithString: "")
     private let parentSlash = NSTextField(labelWithString: "/")
@@ -88,16 +89,20 @@ final class BreadcrumbView: NSView {
         parent.textColor = Theme.textSecondary
         parentSlash.textColor = Theme.textTertiary
         fileSlash.textColor = Theme.textTertiary
-        for child in [symbol, parent, parentSlash, folder, folderLabel, fileSlash, filename] {
+        rating.identifier = .init("BreadcrumbRating")
+        rating.setContentCompressionResistancePriority(.required, for: .horizontal)
+        rating.isHidden = true
+        for child in [symbol, parent, parentSlash, folder, folderLabel, fileSlash, filename, rating] {
             row.addArrangedSubview(child)
         }
         row.spacing = 7
         row.alignment = .centerY
+        row.detachesHiddenViews = true
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
             row.centerYAnchor.constraint(equalTo: centerYAnchor), symbol.widthAnchor.constraint(equalToConstant: 14),
             symbol.heightAnchor.constraint(equalToConstant: 14),
         ])

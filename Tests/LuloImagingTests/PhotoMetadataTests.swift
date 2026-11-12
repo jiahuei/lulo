@@ -25,7 +25,7 @@ func realPhotoMetadataAndDecode() throws {
     #expect(fields["Flash"] == "0")
     #expect(fields["Exposure Program"] == "1")
     #expect(fields["Metering Mode"] == "5")
-    #expect(fields["Date Time Captured"] == "2025:03:17 16:41:58")
+    #expect(fields["Date Time Captured"] == "2025/03/17 16:41:58")
     #expect(details.entry.capturedAt == ImageLoader.captureDate("2025:03:17 07:41:58", offset: "+00:00"))
     #expect(fields["Altitude"] == "836 m")
     let coordinates = try #require(fields["GPS"]).components(separatedBy: ", ")

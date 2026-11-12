@@ -29,7 +29,8 @@ func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 
         kCGImagePropertyOrientation: orientation,
         kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi,
         kCGImagePropertyExifDictionary: [
-            "DateTimeOriginal": "2026:01:02 03:04:05", "FNumber": 2.8, "BodySerialNumber": "SYNTHETIC",
+            "DateTimeOriginal": "2026:01:02 03:04:05", "DateTimeDigitized": "2026:01:02 03:04:06",
+            "FNumber": 2.8, "BodySerialNumber": "SYNTHETIC",
         ],
         kCGImagePropertyTIFFDictionary: [
             "Make": "Synthetic Camera", "Artist": "Lulo Tests", "DateTime": "2026:02:03 04:05:06",
@@ -238,7 +239,7 @@ func oversizedImageIsRecoverable() throws {
     }
 }
 
-/// Ensures discovery carries oriented dimensions for justified rows without a second metadata read.
+/// Ensures discovery carries oriented dimensions and metadata displays all timestamps without changing capture time.
 @Test(arguments: [1, 6])
 func entryDimensionsAndMetadataLabels(_ orientation: Int) throws {
     try withFolder { folder in
@@ -250,8 +251,10 @@ func entryDimensionsAndMetadataLabels(_ orientation: Int) throws {
         let fields = Dictionary(uniqueKeysWithValues: details.groups.flatMap(\.fields).map { ($0.name, $0.value) })
         #expect(fields["Dimensions"] == "\(details.width) × \(details.height)")
         #expect(fields["File Dimensions"] == nil && fields["Current Dimensions"] == nil)
-        #expect(fields["Date Time Captured"] == "2026:01:02 03:04:05")
-        #expect(fields["Date Time Modified"] == "2026:02:03 04:05:06")
+        #expect(fields["Date Time Captured"] == "2026/01/02 03:04:05")
+        #expect(fields["Date Time Digitized"] == "2026/01/02 03:04:06")
+        #expect(fields["Date Time Modified"] == "2026/02/03 04:05:06")
+        #expect(details.entry.capturedAt == ImageLoader.captureDate("2026:01:02 03:04:05", offset: nil))
         #expect(details.groups.last?.name == "Attribution and comments")
     }
 }

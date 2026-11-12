@@ -50,6 +50,7 @@ enum RenderPreviews {
         try verifyDisplayToggle(viewer)
         try verifyReviewRegressions(viewer)
         try verifySmallCanvasImages()
+        try verifyMetadataAndCaptionPresentation(fixture: fixture)
         try verifyBackgroundColorSpace()
         try capture(window, to: output.appendingPathComponent("image-light.png"))
         viewer.toggleSidebar()
@@ -121,6 +122,43 @@ enum RenderPreviews {
         try verifyTrashAction(fixture: fixture, output: output)
         print("Rendered native viewer previews and verified real-photo arrow navigation.")
         window.close()
+    }
+
+    /// Ensures the metadata header matches its timestamp field and Rows captions darken toward the bottom edge.
+    private static func verifyMetadataAndCaptionPresentation(fixture: URL) throws {
+        let panel = MetadataPanel(frame: NSRect(x: 0, y: 0, width: 314, height: 600))
+        panel.show(try ImageLoader.details(at: fixture))
+        guard panel.text.string.contains("2026/01/02 03:04:05"),
+            descendants(panel).compactMap({ $0 as? NSTextField }).contains(where: {
+                $0.stringValue == "2026/01/02 03:04:05" && !$0.isHidden
+            })
+        else { throw PreviewError.captureFailed }
+
+        let tile = GalleryThumbnailView(frame: NSRect(x: 0, y: 0, width: 160, height: 100))
+        tile.image = NSImage(cgImage: try solidImage(width: 160, height: 100), size: .zero)
+        tile.filename = "photo.png"
+        tile.presentation = .rows
+        guard
+            let event = NSEvent.mouseEvent(
+                with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                context: nil, eventNumber: 0, clickCount: 0, pressure: 0)
+        else { throw PreviewError.galleryFailed(line: #line) }
+        for selected in [true, false] {
+            tile.selected = selected
+            if !selected { tile.mouseEntered(with: event) }
+            guard let bitmap = tile.bitmapImageRepForCachingDisplay(in: tile.bounds) else {
+                throw PreviewError.captureFailed
+            }
+            tile.cacheDisplay(in: tile.bounds, to: bitmap)
+            let x = bitmap.pixelsWide * 7 / 8
+            let bottomY = bitmap.pixelsHigh * 94 / 100
+            let topY = bitmap.pixelsHigh * 74 / 100
+            guard let bottom = bitmap.colorAt(x: x, y: bottomY)?.usingColorSpace(.sRGB),
+                let top = bitmap.colorAt(x: x, y: topY)?.usingColorSpace(.sRGB),
+                bottom.redComponent + 0.1 < top.redComponent
+            else { throw PreviewError.galleryFailed(line: #line) }
+            tile.resetHover()
+        }
     }
 
     /// Ensures tiny icons, thin panoramas and minimum zoom paint at both raster scales without invalid corners.
@@ -1409,9 +1447,8 @@ enum RenderPreviews {
         viewer.open(first)
         try waitUntil { canvas.image != nil && !canvas.isLoading && window.attachedSheet == nil }
         guard refresh.isEnabled, hasStatus("1 of 1"),
-            let rating = descendants(root).compactMap({ $0 as? NSTextField }).first(where: {
-                $0.identifier?.rawValue == "StatusRating" && $0.stringValue == "★ 1"
-            })
+            let rating = toolbarControl(window, "BreadcrumbRating") as? RatingChip,
+            rating.stringValue == "★ 1"
         else {
             let labels = descendants(root).compactMap { ($0 as? NSTextField)?.stringValue }
             FileHandle.standardError.write(
@@ -1475,6 +1512,15 @@ enum RenderPreviews {
             window.appearance = NSAppearance(named: appearance)
             window.setContentSize(NSSize(width: 720, height: 480))
             settle()
+            guard let breadcrumb = window.toolbar?.items.compactMap(\.view).compactMap({ $0 as? BreadcrumbView }).first,
+                let filename = descendants(breadcrumb).compactMap({ $0 as? NSTextField })
+                    .first(where: { $0.stringValue == "a.png" })
+            else { throw PreviewError.refreshFailed(line: #line) }
+            let ratingRect = breadcrumb.convert(rating.bounds, from: rating)
+            let filenameRect = breadcrumb.convert(filename.bounds, from: filename)
+            guard breadcrumb.bounds.contains(ratingRect), ratingRect.minX >= filenameRect.maxX,
+                abs(ratingRect.midY - filenameRect.midY) < 1
+            else { throw PreviewError.refreshFailed(line: #line) }
             try capture(window, to: output.appendingPathComponent("viewer-rating-\(appearance.rawValue).png"))
         }
         viewer.useAuthorizedFolder(FileAccess(url: folder))

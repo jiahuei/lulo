@@ -72,7 +72,7 @@ final class MetadataPanel: NSView {
     func show(_ details: ImageDetails) {
         name.attributedStringValue = Theme.headline(
             details.entry.url.lastPathComponent, size: 20, weight: .bold, tracking: -0.02, lineBreak: .byCharWrapping)
-        captured.stringValue = details.entry.capturedAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? ""
+        captured.stringValue = details.groups.flatMap(\.fields).first { $0.name == "Date Time Captured" }?.value ?? ""
         captured.isHidden = captured.stringValue.isEmpty
         chip.setRating(details.entry.rating)
         let content = NSMutableAttributedString()

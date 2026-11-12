@@ -503,7 +503,7 @@ final class GalleryThumbnailView: NSImageView {
                 height: captionHeight)
             if !failed {
                 NSGradient(starting: .black.withAlphaComponent(0.82), ending: .clear)?.draw(
-                    in: bottom, angle: isFlipped ? 90 : -90)
+                    in: bottom, angle: isFlipped ? -90 : 90)
             }
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineBreakMode = .byTruncatingMiddle

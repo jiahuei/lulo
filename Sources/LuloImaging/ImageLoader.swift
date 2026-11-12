@@ -123,6 +123,11 @@ public enum ImageLoader {
             guard let value else { return nil }
             return String(describing: value)
         }
+        func timestamp(_ value: Any?) -> String? {
+            // Preserve the embedded wall-clock time, independent of the viewer's locale and time zone.
+            text(value)?.replacingOccurrences(
+                of: #"^(\d{4}):(\d{2}):(\d{2}) "#, with: "$1/$2/$3 ", options: .regularExpression)
+        }
         func group(_ name: String, _ fields: [(String, String?)]) -> MetadataGroup {
             MetadataGroup(
                 name: name,
@@ -155,9 +160,9 @@ public enum ImageLoader {
             group(
                 "Timestamps",
                 [
-                    ("Date Time Captured", text(exif["DateTimeOriginal"])),
-                    ("Date Time Digitized", text(exif["DateTimeDigitized"])),
-                    ("Date Time Modified", text(tiff["DateTime"])),
+                    ("Date Time Captured", timestamp(exif["DateTimeOriginal"])),
+                    ("Date Time Digitized", timestamp(exif["DateTimeDigitized"])),
+                    ("Date Time Modified", timestamp(tiff["DateTime"])),
                 ]),
             group(
                 "Exposure",
