@@ -1,6 +1,6 @@
 # Lulo
 
-A simple, no-nonsense image viewer for macOS. Open an image, browse a folder, and take a closer look.
+I built this image viewer because I looked around and I couldn't find any image viewer that does what I want: a simple, no-nonsense image viewer where I can easily inspect, sort, filter, and delete images, all while having a great looking UI.
 
 Built with native macOS controls, Lulo keeps your images front and center. No editing, catalogs, accounts, or cloud services.
 
@@ -16,6 +16,24 @@ Built with native macOS controls, Lulo keeps your images front and center. No ed
 - **Keep your sorting preferences** between launches. Viewing starts in Fit to Window; navigation preserves the selected fit/100% mode and relative viewing position.
 
 Requires **macOS 14 or later**. Supports Apple Silicon and Intel Macs. RAW images are not supported.
+
+## Take a look
+
+### Gallery with preview
+
+![Lulo gallery with a large selected-image preview and thumbnail grid](docs/screenshots/01-lulo-gallery-preview-s.jpg)
+
+### Gallery rows
+
+![Lulo gallery displaying images in rows with embedded star ratings](docs/screenshots/02-lulo-galery-rows-s.jpg)
+
+### Image metadata
+
+![Lulo image viewer with the metadata sidebar open](docs/screenshots/03-lulo-image-metadata-s.jpg)
+
+### Sort and filter
+
+![Lulo image viewer with sorting and rating and file type filters](docs/screenshots/04-lulo-image-sort-s.jpg)
 
 ## Try Lulo
 
