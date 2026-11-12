@@ -781,15 +781,15 @@ enum RenderPreviews {
             timer?.invalidate()
             // A rejected mouse-down can leave its release queued; do not contaminate the next gesture.
             while let event = NSApp.nextEvent(
-                matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true)
+                matching: [.leftMouseDragged, .leftMouseUp], until: Date(), inMode: .default, dequeue: true)
             {
                 NSApp.sendEvent(event)
             }
         }
-        if let duringTracking {
+        if duringTracking != nil || end != nil {
             // Withhold mouse-up until AppKit enters its tracking loop, establishing the overlap deterministically.
             let complete: @MainActor @Sendable () -> Void = {
-                duringTracking()
+                duringTracking?()
                 NSApp.postEvent(up, atStart: true)
             }
             let release = Timer(timeInterval: 0.01, repeats: false) { _ in
@@ -797,6 +797,8 @@ enum RenderPreviews {
             }
             timer = release
             RunLoop.main.add(release, forMode: .eventTracking)
+            RunLoop.main.add(release, forMode: .default)
+            if let end { NSApp.postEvent(try event(.leftMouseDragged, at: end), atStart: true) }
         } else {
             NSApp.postEvent(up, atStart: true)
         }
