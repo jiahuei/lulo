@@ -17,7 +17,7 @@ Built with native macOS controls, Lulo keeps your images front and center. No ed
 
 Requires **macOS 14 or later**. Supports Apple Silicon and Intel Macs. RAW images are not supported.
 
-## Screenshots
+## Take a look
 
 ### Gallery with preview
 
