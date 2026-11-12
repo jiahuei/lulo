@@ -240,7 +240,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         gallery.clearFilters = { [weak self] in self?.clearFilters() }
         canvas.resetZoom()
         canvas.showMessage(
-            "Open an image.", detail: "View JPEG, PNG, HEIF, BMP, JPEG XL, and WebP images.",
+            "Open an image.", detail: "View JPEG/JPG, PNG, HEIF/HEIC, BMP, JPEG XL, and WebP images.",
             actionTitle: "Open Image", action: { [weak self] in self?.openPanel() })
         updateStatus()
         window.makeFirstResponder(canvas)
