@@ -26,7 +26,6 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private let browsePopover = NSPopover()
     private let filterSummary = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
-    private let rating = RatingChip()
     private let zoomLabel = NSTextField(labelWithString: "")
     private let metadataPanel = MetadataPanel()
     private let breadcrumb = BreadcrumbView()
@@ -196,8 +195,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         filterSummary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        rating.identifier = .init("StatusRating")
-        let footer = NSStackView(views: [status, rating, filterSummary, spacer, zoomLabel])
+        let footer = NSStackView(views: [status, filterSummary, spacer, zoomLabel])
         footer.spacing = 14
         footer.detachesHiddenViews = true
         footer.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 4, right: 20)
@@ -272,7 +270,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         func label(_ text: String) -> NSTextField {
             let label = NSTextField(labelWithString: text)
             label.font = .systemFont(ofSize: 11, weight: .semibold)
-            label.textColor = Theme.textTertiary
+            label.textColor = .labelColor
             return label
         }
         let heading = NSTextField(labelWithString: "Sort & Filter")
@@ -464,7 +462,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         metadataPanel.isHidden = true
         canvas.resetZoom()
         metadataPanel.clear()
-        rating.stringValue = ""
+        breadcrumb.rating.stringValue = ""
         status.stringValue = ""
         let parent = url.deletingLastPathComponent().standardizedFileURL
         if folderAccess?.url.standardizedFileURL != parent { folderAccess = nil }
@@ -632,7 +630,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         }
         let currentRequest = request
         metadataPanel.clear()
-        rating.stringValue = ""
+        breadcrumb.rating.stringValue = ""
         guard let url = session.selectedURL ?? (reloadingOpenedImage ? openedURL : nil) else {
             canvas.image = nil
             window?.title = "Lulo"
@@ -670,7 +668,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
                 self.canvas.image = loaded.image
                 self.canvas.setAccessibilityLabel(url.lastPathComponent)
                 self.showMetadata(loaded.details)
-                self.rating.setRating(loaded.details.entry.rating)
+                self.breadcrumb.rating.setRating(loaded.details.entry.rating)
                 self.updateStatus()
                 self.prefetchNeighbor()
             } catch is CancellationError {
@@ -710,7 +708,8 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         display.isEnabled = !galleryVisible
         info.isEnabled = !galleryVisible
         refresh.isEnabled = canRefresh
-        rating.isHidden = galleryVisible || canvas.image == nil || canvas.isLoading || rating.stringValue.isEmpty
+        breadcrumb.rating.isHidden =
+            galleryVisible || canvas.image == nil || canvas.isLoading || breadcrumb.rating.stringValue.isEmpty
         if galleryVisible, let folderAccess {
             window?.title = folderAccess.url.lastPathComponent
         }
