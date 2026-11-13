@@ -1,5 +1,7 @@
 # Development setup
 
+For first-time MacBook setup, signing, and Mac App Store publication, follow [APP_STORE_CHECKLIST.md](APP_STORE_CHECKLIST.md).
+
 Run commands from the repository root. Lulo targets macOS 14+. The pinned application toolchain is **Xcode 16.4 (16F6), Apple Swift 6.1.2**, matching `.github/workflows/macos.yml`. AppKit, Image I/O, and interactive verification require macOS.
 
 Open `Lulo.xcodeproj` with Xcode 16.4 and run the shared **Lulo** scheme. See [Build and test](#build-and-test) for command-line checks and local signing. The initial implementation needs the interactive macOS verification below before release.

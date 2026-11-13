@@ -43,4 +43,6 @@ Open an image from Finder or **File > Open**. Allow access to its folder to brow
 
 For building, testing, and contributing, see the [development guide](QUICKSTART.md).
 
+For a fresh MacBook setup through Mac App Store publication, follow the [App Store checklist](APP_STORE_CHECKLIST.md).
+
 The D9 interface adds a folder breadcrumb, capsule controls, Rows and Preview gallery layouts with saved sizes, a floating metadata panel, numbered ratings and an optional image-derived blurred background.
