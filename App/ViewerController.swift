@@ -236,6 +236,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         }
         gallery.openSelection = { [weak self] in self?.showSelectedImage() }
         gallery.clearFilters = { [weak self] in self?.clearFilters() }
+        gallery.openImage = { [weak self] in self?.openPanel() }
         canvas.resetZoom()
         canvas.showMessage(
             "Open an image.", detail: "View JPEG/JPG, PNG, HEIF/HEIC, BMP, JPEG XL, and WebP images.",

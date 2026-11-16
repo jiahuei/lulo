@@ -18,6 +18,11 @@ public struct ImageDetails: Sendable {
     public let width: Int
     public let height: Int
     public let groups: [MetadataGroup]
+
+    /// Embedded wall time for display; capturedAt remains the independent sorting value.
+    public var captureTimeDisplay: String? {
+        groups.flatMap(\.fields).first { $0.name == "Date Time Captured" }?.value
+    }
 }
 
 public enum ImageLoadError: LocalizedError {

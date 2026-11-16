@@ -7,17 +7,19 @@ public struct LoadedImage: @unchecked Sendable {
     public let details: ImageDetails
 }
 
-/// Serializes full-resolution decoding and retains at most ten images within the byte budget.
+/// Serializes full-resolution decoding and retains at most 500 images within the byte budget.
 public actor ImageStore {
     public let byteLimit: Int
+    public let countLimit: Int
     public var cachedBytes: Int { cache.cachedBytes }
     private var generation: Int?
     private var cache: DecodedImageCache<LoadedImage>
     private let decode: @Sendable (URL) throws -> LoadedImage
 
-    public init(byteLimit: Int = 1024 * 1024 * 1024) {
+    public init(byteLimit: Int = 3 * 1024 * 1024 * 1024, countLimit: Int = 500) {
         self.byteLimit = max(0, byteLimit)
-        cache = DecodedImageCache(byteLimit: self.byteLimit, countLimit: 10)
+        self.countLimit = max(0, countLimit)
+        cache = DecodedImageCache(byteLimit: self.byteLimit, countLimit: self.countLimit)
         decode = { url in
             try LoadedImage(image: ImageLoader.decode(at: url), details: ImageLoader.details(at: url))
         }
@@ -26,7 +28,8 @@ public actor ImageStore {
     // Lets regression tests cancel a request at the precise decode-completion boundary.
     init(byteLimit: Int, decode: @escaping @Sendable (URL) throws -> LoadedImage) {
         self.byteLimit = max(0, byteLimit)
-        cache = DecodedImageCache(byteLimit: self.byteLimit, countLimit: 10)
+        countLimit = 500
+        cache = DecodedImageCache(byteLimit: self.byteLimit, countLimit: self.countLimit)
         self.decode = decode
     }
 

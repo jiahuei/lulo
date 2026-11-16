@@ -124,10 +124,19 @@ enum RenderPreviews {
         window.close()
     }
 
-    /// Ensures the metadata header matches its timestamp field and Rows captions darken toward the bottom edge.
+    /// Ensures both capture displays preserve the date in Los Angeles and Rows captions darken toward the bottom edge.
     private static func verifyMetadataAndCaptionPresentation(fixture: URL) throws {
+        let savedTimeZone = NSTimeZone.default
+        NSTimeZone.default = TimeZone(identifier: "America/Los_Angeles")!
+        defer { NSTimeZone.default = savedTimeZone }
+        let details = try ImageLoader.details(at: fixture)
         let panel = MetadataPanel(frame: NSRect(x: 0, y: 0, width: 314, height: 600))
-        panel.show(try ImageLoader.details(at: fixture))
+        panel.show(details)
+        let gallery = GalleryView()
+        gallery.showPreview(try ImageLoader.decode(at: fixture), details: details)
+        guard descendants(gallery).compactMap({ $0 as? NSTextField }).contains(where: {
+            $0.stringValue.hasPrefix("2026/01/02 03:04:05")
+        }) else { throw PreviewError.captureFailed }
         guard panel.text.string.contains("2026/01/02 03:04:05"),
             descendants(panel).compactMap({ $0 as? NSTextField }).contains(where: {
                 $0.stringValue == "2026/01/02 03:04:05" && !$0.isHidden
@@ -629,6 +638,13 @@ enum RenderPreviews {
                 $0.title == "Clear Filters"
             })
         else { throw PreviewError.galleryFailed(line: #line) }
+        for layout in [GalleryLayout.rows, .preview] {
+            if layout == .rows { viewer.showRows() } else { viewer.showPreview() }
+            guard let message = descendants(gallery).compactMap({ $0 as? MessageView }).first,
+                !message.isHidden, message.headline == "No images match the current filters.",
+                message.button.title == "Clear Filters"
+            else { throw PreviewError.galleryFailed(line: #line) }
+        }
         clear.performClick(nil)
         try waitUntil { collection.numberOfItems(inSection: 0) == 81 }
         // A new explicit open must close the gallery and discard its old cells and thumbnail requests.
@@ -1551,6 +1567,27 @@ enum RenderPreviews {
         try FileManager.default.removeItem(at: first)
         refresh.performClick(nil)
         try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
+        for layout in [GalleryLayout.rows, .preview] {
+            if layout == .rows { viewer.showRows() } else { viewer.showPreview() }
+            try FileManager.default.removeItem(at: third)
+            refresh.performClick(nil)
+            try waitUntil { collection.numberOfItems(inSection: 0) == 0 }
+            guard !gallery.isHidden,
+                let message = descendants(gallery).compactMap({ $0 as? MessageView }).first,
+                !message.isHidden, message.headline == "No images remaining",
+                let open = descendants(message).compactMap({ $0 as? NSButton }).first,
+                open.title == "Open Image", open.isEnabled
+            else { throw PreviewError.refreshFailed(line: #line) }
+            let openImage = gallery.openImage
+            var requestedOpen = false
+            gallery.openImage = { requestedOpen = true }
+            open.performClick(nil)
+            gallery.openImage = openImage
+            guard requestedOpen else { throw PreviewError.refreshFailed(line: #line) }
+            try makeFixture(at: third, rating: 5)
+            refresh.performClick(nil)
+            try waitUntil { collection.numberOfItems(inSection: 0) == 1 && message.isHidden }
+        }
         viewer.toggleGallery()
         try waitUntil { !canvas.isLoading && canvas.image != nil && window.title == "c.png" }
         guard rating.stringValue == "★ 5", !rating.isHidden else { throw PreviewError.refreshFailed(line: #line) }
@@ -1602,6 +1639,24 @@ enum RenderPreviews {
         try waitUntil { !canvas.isLoading && canvas.image == nil }
         try makeFixture(at: first, rating: 3)
         try waitUntil { canvas.image != nil && !canvas.isLoading && hasLabel("★ 3") }
+        let link = folder.appendingPathComponent("link.png")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: first)
+        viewer.open(link)
+        try waitUntil { window.title == "link.png" && canvas.image != nil && window.attachedSheet == nil }
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        try makeFixture(at: first, rating: 5, orientation: 6)
+        try waitUntil { hasLabel("★ 5") && canvas.image?.height == 1200 && !canvas.isLoading }
+        guard hasLabel("1 of 1") else { throw PreviewError.refreshFailed(line: #line) }
+        try FileManager.default.removeItem(at: first)
+        try waitUntil { !canvas.isLoading && canvas.image == nil }
+        try makeFixture(at: first, rating: 3)
+        try waitUntil { canvas.image != nil && !canvas.isLoading && hasLabel("★ 3") }
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: second)
+        try waitUntil { hasLabel("★ 2") && !canvas.isLoading }
+        viewer.open(first)
+        try waitUntil { window.title == "a.png" && canvas.image != nil && window.attachedSheet == nil }
+        try FileManager.default.removeItem(at: link)
         viewer.useAuthorizedFolder(FileAccess(url: folder))
         try waitUntil { hasLabel("1 of 2") }
         viewer.toggleGallery()

@@ -29,6 +29,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
     var selectionChanged: ((URL) -> Void)?
     var openSelection: (() -> Void)?
     var clearFilters: (() -> Void)?
+    var openImage: (() -> Void)?
 
     init(loader: ThumbnailLoader = ThumbnailLoader()) {
         self.loader = loader
@@ -74,9 +75,6 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         viewButton.target = self
         viewButton.action = #selector(openPoster)
         for view in [posterImage, caption, exposure, posterRating, viewButton] { poster.addSubview(view) }
-        emptyState.show("No images match the current filters.", detail: "", actionTitle: "Clear Filters") {
-            [weak self] in self?.clearFilters?()
-        }
         emptyState.translatesAutoresizingMaskIntoConstraints = false
         addSubview(emptyState)
         NSLayoutConstraint.activate([
@@ -207,7 +205,17 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
                 + preferences.sort.rawValue.lowercased()
         count.textColor = preferences.blurredBackground ? Theme.textPrimary : Theme.textSecondary
         exposure.textColor = count.textColor
-        emptyState.detail.stringValue = filterSummary
+        if entries.isEmpty {
+            if totalCount == 0 {
+                emptyState.show("No images remaining", detail: "", actionTitle: "Open Image") {
+                    [weak self] in self?.openImage?()
+                }
+            } else {
+                emptyState.show(
+                    "No images match the current filters.", detail: filterSummary, actionTitle: "Clear Filters"
+                ) { [weak self] in self?.clearFilters?() }
+            }
+        }
         scroll.isHidden = entries.isEmpty
         emptyState.isHidden = !entries.isEmpty
         poster.isHidden = mode != .preview || entries.isEmpty
@@ -239,7 +247,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         needsLayout = true
         if let details {
             let fields = details.groups.first(where: { $0.name == "Exposure" })?.fields ?? []
-            let captured = details.entry.capturedAt.map { $0.formatted(date: .abbreviated, time: .shortened) }
+            let captured = details.captureTimeDisplay
             exposure.stringValue = [
                 captured, fields.first(where: { $0.name == "Exposure" })?.value,
                 fields.first(where: { $0.name == "ISO Speed Rating" }).map { "ISO \($0.value)" },
