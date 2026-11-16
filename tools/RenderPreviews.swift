@@ -134,9 +134,11 @@ enum RenderPreviews {
         panel.show(details)
         let gallery = GalleryView()
         gallery.showPreview(try ImageLoader.decode(at: fixture), details: details)
+        let expectedCapture = ISO8601DateFormatter().date(from: "2026-01-02T03:04:05Z")!.formatted(
+            Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: TimeZone(secondsFromGMT: 0)!))
         guard
             descendants(gallery).compactMap({ $0 as? NSTextField }).contains(where: {
-                $0.stringValue.hasPrefix("2026/01/02 03:04:05")
+                $0.stringValue.hasPrefix(expectedCapture + ", ")
             })
         else { throw PreviewError.captureFailed }
         guard panel.text.string.contains("2026/01/02 03:04:05"),

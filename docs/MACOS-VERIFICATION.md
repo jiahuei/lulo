@@ -78,6 +78,6 @@ No interactive verification has yet been recorded in this repository.
 
 ## Capture time, symbolic links, and empty galleries
 
-- [ ] With the Mac in America/Los_Angeles, open a synthetic image captured at `2026:01:02 03:04:05` without a timezone offset. The metadata header and Gallery Preview must both show `2026/01/02 03:04:05`, not the previous day. Repeat with an explicit offset, and missing/invalid capture tags; keep Time Taken sorting unchanged.
+- [ ] With the Mac in America/Los_Angeles, open a synthetic image captured at `2026:01:02 03:04:05` without a timezone offset. The metadata header must show `2026/01/02 03:04:05` and Gallery Preview must show the localized equivalent of `Jan 2, 2026 at 3:04 AM`, not the previous day. Repeat with an explicit offset, and missing/invalid capture tags; keep Time Taken sorting unchanged.
 - [ ] Pass a supported symlink URL directly to the viewer and decline folder access. Modify, atomically replace, delete/recreate its target, then retarget the link. Verify automatic image/metadata refresh, recoverable missing-target errors, and cache revisits without sibling access. Trash must still reject the symlink.
 - [ ] In each Gallery layout, delete the last image externally and refresh. Verify No images remaining and that Open Image launches the picker. Add an image and refresh to recover. When filters exclude existing images, verify Clear Filters restores them instead.

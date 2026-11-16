@@ -18,10 +18,19 @@ public struct ImageDetails: Sendable {
     public let width: Int
     public let height: Int
     public let groups: [MetadataGroup]
+    let captureTimestamp: String?
 
     /// Embedded wall time for display; capturedAt remains the independent sorting value.
     public var captureTimeDisplay: String? {
         groups.flatMap(\.fields).first { $0.name == "Date Time Captured" }?.value
+    }
+
+    public func abbreviatedCaptureTime(locale: Locale = .autoupdatingCurrent) -> String? {
+        // Parse and format in the same fixed zone to preserve the embedded clock components,
+        // even when an offset exists. The offset-aware entry date is only for sorting.
+        guard let date = ImageLoader.captureDate(captureTimestamp, offset: nil) else { return nil }
+        return date.formatted(
+            Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale, timeZone: TimeZone(secondsFromGMT: 0)!))
     }
 }
 
@@ -203,7 +212,9 @@ public enum ImageLoader {
                     ("User Comment", text(exif["UserComment"])),
                 ]),
         ]
-        return ImageDetails(entry: entry, width: orientedWidth, height: orientedHeight, groups: groups)
+        return ImageDetails(
+            entry: entry, width: orientedWidth, height: orientedHeight, groups: groups,
+            captureTimestamp: exif["DateTimeOriginal"] as? String)
     }
 
     public static func decode(at url: URL) throws -> CGImage {

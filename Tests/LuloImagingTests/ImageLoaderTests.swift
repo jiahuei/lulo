@@ -272,6 +272,7 @@ func captureDisplayAndSorting(_ offset: String?) throws {
         try fixture(at: url, type: .jpeg, offset: offset)
         let details = try ImageLoader.details(at: url)
         #expect(details.captureTimeDisplay == "2026/01/02 03:04:05")
+        #expect(details.abbreviatedCaptureTime(locale: Locale(identifier: "en_US")) == "Jan 2, 2026 at 3:04 AM")
         let sorted = try #require(details.entry.capturedAt)
         #expect(sorted == ImageLoader.captureDate("2026:01:02 03:04:05", offset: offset))
         var calendar = Calendar(identifier: .gregorian)
@@ -289,9 +290,23 @@ func absentCaptureDisplay(_ captured: String?) throws {
         try fixture(at: url, type: .jpeg, captured: captured)
         let details = try ImageLoader.details(at: url)
         #expect(details.entry.capturedAt == nil)
+        #expect(details.abbreviatedCaptureTime() == nil)
         // Image I/O may omit invalid tags; otherwise preserve the raw field as the metadata panel already does.
         let field = details.groups.flatMap(\.fields).first { $0.name == "Date Time Captured" }?.value
         #expect(details.captureTimeDisplay == field)
         if captured == nil { #expect(details.captureTimeDisplay == nil) }
+    }
+}
+
+/// Ensures Gallery Preview retains the original abbreviated date and short time for offset and timezone-less captures.
+@Test(arguments: [nil, "+02:00", "-07:00"] as [String?])
+func abbreviatedCaptureTime(_ offset: String?) throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("capture.jpg")
+        try fixture(at: url, type: .jpeg, captured: "2025:03:13 09:43:12", offset: offset)
+        let details = try ImageLoader.details(at: url)
+        #expect(details.abbreviatedCaptureTime(locale: Locale(identifier: "en_US")) == "Mar 13, 2025 at 9:43 AM")
+        #expect(details.captureTimeDisplay == "2025/03/13 09:43:12")
+        #expect(details.entry.capturedAt == ImageLoader.captureDate("2025:03:13 09:43:12", offset: offset))
     }
 }
