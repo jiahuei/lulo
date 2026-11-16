@@ -30,7 +30,8 @@ public struct ImageDetails: Sendable {
         // even when an offset exists. The offset-aware entry date is only for sorting.
         guard let date = ImageLoader.captureDate(captureTimestamp, offset: nil) else { return nil }
         return date.formatted(
-            Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale, timeZone: TimeZone(secondsFromGMT: 0)!))
+            Date.FormatStyle(
+                date: .abbreviated, time: .shortened, locale: locale, timeZone: TimeZone(secondsFromGMT: 0)!))
     }
 }
 
