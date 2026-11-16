@@ -9,7 +9,7 @@ struct DecodedImageCache<Value: Sendable> {
 
     init(byteLimit: Int, countLimit: Int = .max) {
         self.byteLimit = max(0, byteLimit)
-        self.countLimit = countLimit
+        self.countLimit = max(0, countLimit)
     }
 
     mutating func removeAll() {
@@ -31,7 +31,7 @@ struct DecodedImageCache<Value: Sendable> {
         let value = try autoreleasepool { try decode() }
         let cost = byteCost(value)
         // NSCache's cost limit is advisory; eviction here enforces both budgets exactly.
-        if cost <= byteLimit {
+        if countLimit > 0 && cost <= byteLimit {
             while !entries.isEmpty && (cachedBytes + cost > byteLimit || entries.count >= countLimit) {
                 cachedBytes -= entries.removeFirst().cost
             }
@@ -56,7 +56,10 @@ struct FileStamp: Equatable {
 
     init(url: URL) throws {
         // URL resource values may be cached on the URL itself; stat afresh on each revisit.
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        // Cache pixels and monitor changes for the target while retaining the caller's original URL/grant.
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)
+        // An unresolved (for example dangling) link is not a readable target.
+        guard attributes[.type] as? FileAttributeType != .typeSymbolicLink else { throw ImageLoadError.unreadable }
         modified = attributes[.modificationDate] as? Date
         size = (attributes[.size] as? NSNumber)?.uint64Value
         fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value

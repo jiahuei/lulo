@@ -13,7 +13,10 @@ private func withFolder(_ work: (URL) throws -> Void) throws {
     try work(folder)
 }
 
-func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 72, rating: Int? = nil) throws {
+func fixture(
+    at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 72, rating: Int? = nil,
+    captured: String? = "2026:01:02 03:04:05", offset: String? = nil
+) throws {
     let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
     let context = try #require(
         CGContext(
@@ -25,13 +28,15 @@ func fixture(at url: URL, type: UTType = .png, orientation: Int = 1, dpi: Int = 
     context.fill(CGRect(x: 6, y: 0, width: 6, height: 8))
     let image = try #require(context.makeImage())
     let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil))
+    var exif: [String: Any] = [
+        "DateTimeDigitized": "2026:01:02 03:04:06", "FNumber": 2.8, "BodySerialNumber": "SYNTHETIC",
+    ]
+    exif["DateTimeOriginal"] = captured
+    exif["OffsetTimeOriginal"] = offset
     let properties: [CFString: Any] = [
         kCGImagePropertyOrientation: orientation,
         kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi,
-        kCGImagePropertyExifDictionary: [
-            "DateTimeOriginal": "2026:01:02 03:04:05", "DateTimeDigitized": "2026:01:02 03:04:06",
-            "FNumber": 2.8, "BodySerialNumber": "SYNTHETIC",
-        ],
+        kCGImagePropertyExifDictionary: exif,
         kCGImagePropertyTIFFDictionary: [
             "Make": "Synthetic Camera", "Artist": "Lulo Tests", "DateTime": "2026:02:03 04:05:06",
         ],
@@ -256,5 +261,54 @@ func entryDimensionsAndMetadataLabels(_ orientation: Int) throws {
         #expect(fields["Date Time Modified"] == "2026/02/03 04:05:06")
         #expect(details.entry.capturedAt == ImageLoader.captureDate("2026:01:02 03:04:05", offset: nil))
         #expect(details.groups.last?.name == "Attribution and comments")
+    }
+}
+
+/// Ensures display preserves embedded wall time while sorting honors offsets, including a previous-day conversion.
+@Test(arguments: [nil, "+02:00"] as [String?])
+func captureDisplayAndSorting(_ offset: String?) throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("capture.jpg")
+        try fixture(at: url, type: .jpeg, offset: offset)
+        let details = try ImageLoader.details(at: url)
+        #expect(details.captureTimeDisplay == "2026/01/02 03:04:05")
+        let caption = details.abbreviatedCaptureTime(locale: Locale(identifier: "en_US"))
+        #expect(caption == "Jan 2, 2026 at 3:04\u{202F}AM")
+        let sorted = try #require(details.entry.capturedAt)
+        #expect(sorted == ImageLoader.captureDate("2026:01:02 03:04:05", offset: offset))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        #expect(calendar.component(.day, from: sorted) == 1)
+        #expect(try ImageLoader.discover(in: folder).first?.capturedAt == sorted)
+    }
+}
+
+/// Ensures missing/invalid capture timestamps never become sorting dates or invent a display from file creation time.
+@Test(arguments: [nil, "not a date"] as [String?])
+func absentCaptureDisplay(_ captured: String?) throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("capture.jpg")
+        try fixture(at: url, type: .jpeg, captured: captured)
+        let details = try ImageLoader.details(at: url)
+        #expect(details.entry.capturedAt == nil)
+        #expect(details.abbreviatedCaptureTime() == nil)
+        // Image I/O may omit invalid tags; otherwise preserve the raw field as the metadata panel already does.
+        let field = details.groups.flatMap(\.fields).first { $0.name == "Date Time Captured" }?.value
+        #expect(details.captureTimeDisplay == field)
+        if captured == nil { #expect(details.captureTimeDisplay == nil) }
+    }
+}
+
+/// Ensures Gallery Preview retains the original abbreviated date and short time for offset and timezone-less captures.
+@Test(arguments: [nil, "+02:00", "-07:00"] as [String?])
+func abbreviatedCaptureTime(_ offset: String?) throws {
+    try withFolder { folder in
+        let url = folder.appendingPathComponent("capture.jpg")
+        try fixture(at: url, type: .jpeg, captured: "2025:03:13 09:43:12", offset: offset)
+        let details = try ImageLoader.details(at: url)
+        let caption = details.abbreviatedCaptureTime(locale: Locale(identifier: "en_US"))
+        #expect(caption == "Mar 13, 2025 at 9:43\u{202F}AM")
+        #expect(details.captureTimeDisplay == "2025/03/13 09:43:12")
+        #expect(details.entry.capturedAt == ImageLoader.captureDate("2025:03:13 09:43:12", offset: offset))
     }
 }

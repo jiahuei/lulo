@@ -38,29 +38,30 @@ func imageStoreReuseAndBudget() async throws {
     #expect(await uncached.cachedBytes == 0)
 }
 
-/// Ensures the production full-resolution cache defaults to 1 GiB and evicts the least recent of ten images.
+/// Ensures the production full-resolution cache defaults to 3 GiB and evicts the least recent of 500 images.
 @Test
-func imageStoreTenImageLimit() async throws {
+func imageStoreCountLimit() async throws {
     let folder = try cacheTestFolder()
     defer { try? FileManager.default.removeItem(at: folder) }
-    let urls = (0..<11).map { folder.appendingPathComponent("image\($0).png") }
+    let urls = (0..<501).map { folder.appendingPathComponent("image\($0).png") }
     for url in urls { try fixture(at: url) }
     let store = ImageStore()
-    #expect(await store.byteLimit == 1024 * 1024 * 1024)
+    #expect(await store.byteLimit == 3 * 1024 * 1024 * 1024)
+    #expect(await store.countLimit == 500)
     let first = try await store.load(at: urls[0], generation: 1)
     let second = try await store.load(at: urls[1], generation: 1)
-    for url in urls[2..<10] { _ = try await store.load(at: url, generation: 1) }
+    for url in urls[2..<500] { _ = try await store.load(at: url, generation: 1) }
     let cost = first.image.bytesPerRow * first.image.height
-    #expect(await store.cachedBytes == cost * 10)
+    #expect(await store.cachedBytes == cost * 500)
     let reused = try await store.load(at: urls[0], generation: 1)
     #expect(reused.image === first.image)
-    _ = try await store.load(at: urls[10], generation: 1)
-    #expect(await store.cachedBytes == cost * 10)
+    _ = try await store.load(at: urls[500], generation: 1)
+    #expect(await store.cachedBytes == cost * 500)
     let retained = try await store.load(at: urls[0], generation: 1)
     #expect(retained.image === first.image)
     let evicted = try await store.load(at: urls[1], generation: 1)
     #expect(evicted.image !== second.image)
-    #expect(await store.cachedBytes == cost * 10)
+    #expect(await store.cachedBytes == cost * 500)
 }
 
 /// Ensures changed/deleted source files and explicit new sessions never return stale cached pixels or metadata.

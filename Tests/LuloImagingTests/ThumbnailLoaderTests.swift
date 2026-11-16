@@ -10,14 +10,15 @@ private func thumbnailTestFolder() throws -> URL {
     return folder
 }
 
-/// Ensures thumbnails have a separate 1 GiB default budget without the viewer's ten-image count limit.
+/// Ensures thumbnails have independent 3 GiB / 50,000-image defaults and reuse decoded pixels.
 @Test
 func thumbnailCacheDefaultsAndReuse() async throws {
     let folder = try thumbnailTestFolder()
     defer { try? FileManager.default.removeItem(at: folder) }
     let loader = ThumbnailLoader()
     let access = FileAccess(url: folder)
-    #expect(await loader.byteLimit == 1024 * 1024 * 1024)
+    #expect(await loader.byteLimit == 3 * 1024 * 1024 * 1024)
+    #expect(await loader.countLimit == 50_000)
     var originals: [(URL, LoadedThumbnail)] = []
     for index in 0..<12 {
         let url = folder.appendingPathComponent("image\(index).png")
@@ -150,4 +151,30 @@ func cancelledThumbnailPreservesRefresh() async throws {
     await #expect(throws: CancellationError.self) { try await obsolete.value }
     let retained = try await loader.load(at: url, access: access, generation: 1)
     #expect(retained.image === refreshed.image)
+}
+
+/// Ensures thumbnail count eviction honors recency independently of bytes, and zero disables retention.
+@Test
+func thumbnailCountLimit() async throws {
+    let folder = try thumbnailTestFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let urls = ["a.png", "b.png", "c.png"].map { folder.appendingPathComponent($0) }
+    for url in urls { try fixture(at: url) }
+    let loader = ThumbnailLoader(countLimit: 2)
+    let access = FileAccess(url: folder)
+    let first = try await loader.load(at: urls[0], access: access)
+    let second = try await loader.load(at: urls[1], access: access)
+    _ = try await loader.load(at: urls[0], access: access)
+    _ = try await loader.load(at: urls[2], access: access)
+    let retained = try await loader.load(at: urls[0], access: access)
+    #expect(retained.image === first.image)
+    let evicted = try await loader.load(at: urls[1], access: access)
+    #expect(evicted.image !== second.image)
+    #expect(await loader.cachedBytes == 2 * first.image.bytesPerRow * first.image.height)
+    let uncached = ThumbnailLoader(countLimit: 0)
+    _ = try await uncached.load(at: urls[0], access: access)
+    #expect(await uncached.cachedBytes == 0)
+    let uncachedFull = ImageStore(countLimit: 0)
+    _ = try await uncachedFull.load(at: urls[0], generation: 1)
+    #expect(await uncachedFull.cachedBytes == 0)
 }
