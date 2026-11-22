@@ -6,7 +6,7 @@ Built with native macOS controls, Lulo keeps your images front and center. No ed
 
 - **Open JPEG/JPG, PNG, HEIF/HEIC, BMP, JPEG XL, and WebP images**.
 - **Browse with the arrow keys** after granting access to the containing folder.
-- **See the folder at a glance** with Gallery (Command-G). Double-click a thumbnail or press Return to view the selected image.
+- **Browse folders in Gallery.** Choose a folder with Command-O, or press Command-G while viewing an image. Double-click a tile or press Return to open it. Use Command–Up Arrow to go to the parent folder.
 - **Fit, zoom, and pan** with fit-to-window and 100% views, scroll zoom, and drag panning.
 - **Stay up to date** as images change or files are added or deleted. Refresh either view manually with Command-R.
 - **See embedded star ratings** in both Gallery and the image view.

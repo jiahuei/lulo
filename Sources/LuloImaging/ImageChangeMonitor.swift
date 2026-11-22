@@ -9,7 +9,7 @@ public final class ImageChangeMonitor {
 
     public var isActive: Bool { stream != nil || fileTask != nil }
 
-    public init(fileAccess: FileAccess, folderAccess: FileAccess?, onChange: @escaping @Sendable () -> Void) {
+    public init(fileAccess: FileAccess?, folderAccess: FileAccess?, onChange: @escaping @Sendable () -> Void) {
         if let folderAccess {
             let callback = Callback(access: folderAccess, onChange: onChange)
             var context = FSEventStreamContext(
@@ -37,8 +37,9 @@ public final class ImageChangeMonitor {
                         // Standardizing a deleted file cannot remove /private. Its existing parent can,
                         // so normalize that directory before comparing it with the watched folder.
                         let parent = url.deletingLastPathComponent().standardizedFileURL
+                        let isFolder = flags[index] & UInt32(kFSEventStreamEventFlagItemIsDir) != 0
                         if mustRescan || url == callback.folder
-                            || (parent == callback.folder && ImageFormat(url: url) != nil)
+                            || (parent == callback.folder && (isFolder || ImageFormat(url: url) != nil))
                         {
                             callback.onChange()
                             break
@@ -58,7 +59,7 @@ public final class ImageChangeMonitor {
                     self.stream = nil
                 }
             }
-        } else {
+        } else if let fileAccess {
             // FSEvents watches directories. Checking one file avoids observing unauthorized siblings
             // and follows atomic replacements/recreation, which a watch on the old inode cannot do.
             fileTask = Task.detached(priority: .utility) {

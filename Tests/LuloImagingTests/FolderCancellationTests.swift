@@ -25,7 +25,7 @@ func discoveryStopsAfterInFlightMetadata(_ count: Int) throws {
     var session = ViewingSession()
     let next = ImageEntry(url: URL(fileURLWithPath: "/new-session/photo.jpg"), format: .jpeg)
     #expect(throws: CancellationError.self) {
-        try ImageLoader.discover(
+        try ImageLoader.folderContents(
             in: folder, isCancelled: { operation.isCancelled },
             readEntry: { url in
                 reads += 1

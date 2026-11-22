@@ -163,6 +163,12 @@ public struct ViewingSession: Sendable {
         sidebarVisible = false
     }
 
+    /// Folder browsing keeps the current filters and inspector preference.
+    public mutating func changeFolder() {
+        generation += 1
+        replaceEntries([])
+    }
+
     public mutating func replaceEntries(_ entries: [ImageEntry]) {
         self.entries = entries
         rebuildVisibleEntries()

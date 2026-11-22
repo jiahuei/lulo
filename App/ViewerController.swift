@@ -19,6 +19,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private var formatButtons: [NSButton] = []
     private let info = CapsuleButton()
     private let browse = CapsuleButton()
+    private let up = CapsuleButton()
     private let previous = CapsuleButton()
     private let next = CapsuleButton()
     private let trash = CapsuleButton()
@@ -49,14 +50,16 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private var manualRefresh = false
     private var refreshingFolder = false
     private var refreshRequest = 0
-    typealias DiscoverImages = @Sendable (URL, @Sendable () -> Bool) throws -> [ImageEntry]
+    typealias DiscoverFolder = @Sendable (URL, @Sendable () -> Bool) throws -> FolderContents
     typealias MoveToTrash = @Sendable (URL, FileAccess) async throws -> Void
     private let moveToTrash: MoveToTrash
     private var trashInProgress = false
-    private let discoverImages: DiscoverImages
+    private let scanFolder: DiscoverFolder
     private let worker = OperationQueue()
     private var fileAccess: FileAccess?
     private var folderAccess: FileAccess?
+    private var folders: [URL] = []
+    private var selectedFolder: URL?
     private var folderPanel: NSOpenPanel?
     private let imageStore: ImageStore
     private var loadTask: Task<Void, Never>?
@@ -72,13 +75,13 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
 
     init(
         imageStore: ImageStore = ImageStore(),
-        discoverImages: @escaping DiscoverImages = { try ImageLoader.discover(in: $0, isCancelled: $1) },
+        scanFolder: @escaping DiscoverFolder = { try ImageLoader.folderContents(in: $0, isCancelled: $1) },
         moveToTrash: @escaping MoveToTrash = { _ = try await ImageTrash().move(at: $0, access: $1) },
         automaticallyRefresh: Bool = true
     ) {
         self.imageStore = imageStore
         self.moveToTrash = moveToTrash
-        self.discoverImages = discoverImages
+        self.scanFolder = scanFolder
         self.automaticallyRefresh = automaticallyRefresh
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
@@ -130,6 +133,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         display.selectedIndex = 0
         sorting.selectedIndex = SortMethod.allCases.firstIndex(of: session.preferences.sort) ?? 0
         direction.selectedIndex = session.preferences.ascending ? 0 : 1
+        configureButton(up, title: "Open Parent Folder", symbol: "arrow.up", action: #selector(openParentFolder))
         configureButton(previous, title: "Previous image", symbol: "chevron.left", action: #selector(previousImage))
         configureButton(next, title: "Next image", symbol: "chevron.right", action: #selector(nextImage))
         configureButton(info, title: "Show metadata", symbol: "sidebar.right", action: #selector(toggleSidebar))
@@ -231,16 +235,17 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         canvas.modeChanged = { [weak self] mode in self?.display.selectedIndex = mode == .fit ? 0 : 1 }
         gallery.selectionChanged = { [weak self] url in
             guard let self else { return }
-            self.session.select(url)
+            self.selectedFolder = self.folders.contains(url) ? url : nil
+            if self.selectedFolder == nil { self.session.select(url) }
             self.updateStatus()
         }
-        gallery.openSelection = { [weak self] in self?.showSelectedImage() }
+        gallery.openSelection = { [weak self] in self?.openGallerySelection() }
         gallery.clearFilters = { [weak self] in self?.clearFilters() }
         gallery.openImage = { [weak self] in self?.openPanel() }
         canvas.resetZoom()
         canvas.showMessage(
-            "Open an image.", detail: "View JPEG/JPG, PNG, HEIF/HEIC, BMP, JPEG XL, and WebP images.",
-            actionTitle: "Open Image", action: { [weak self] in self?.openPanel() })
+            "Open an image or folder.", detail: "View JPEG/JPG, PNG, HEIF/HEIC, BMP, JPEG XL, and WebP images.",
+            actionTitle: "Open…", action: { [weak self] in self?.openPanel() })
         updateStatus()
         window.makeFirstResponder(canvas)
     }
@@ -426,14 +431,34 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
 
     @objc func openPanel() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
+        panel.allowedContentTypes = [.image, .folder]
         panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         open(url)
     }
 
     func open(_ url: URL) {
+        let access = FileAccess(url: url)
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+        let isFolder = values?.isDirectory == true && values?.isPackage != true
+        beginSession()
+        session.open(isFolder ? nil : ImageFormat(url: url).map { ImageEntry(url: url, format: $0) })
+        for button in ratingButtons + formatButtons { button.state = .off }
+        info.state = .off
+        info.setAccessibilityLabel("Show metadata")
+        metadataPanel.isHidden = true
+        if isFolder {
+            showFolder(access)
+            return
+        }
+        openedURL = url
+        fileAccess = access
+        setGalleryVisible(false)
+        openImage(url)
+    }
+
+    private func beginSession() {
         changeMonitor = nil
         automaticRefreshTask?.cancel()
         manualRefresh = false
@@ -444,7 +469,6 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         browsePopover.performClose(nil)
-        setGalleryVisible(false)
         folderPanel?.cancel(nil)
         folderPanel = nil
         worker.cancelAllOperations()
@@ -453,18 +477,17 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         navigationDirection = 1
         request += 1
         cacheGeneration += 1
-        openedURL = url
-        fileAccess = FileAccess(url: url)
-        let entry = ImageFormat(url: url).map { ImageEntry(url: url, format: $0) }
-        session.open(entry)
-        for button in ratingButtons + formatButtons { button.state = .off }
-        info.state = .off
-        info.setAccessibilityLabel("Show metadata")
-        metadataPanel.isHidden = true
+        openedURL = nil
+        fileAccess = nil
+        folders = []
+        selectedFolder = nil
         canvas.resetZoom()
         metadataPanel.clear()
         breadcrumb.rating.stringValue = ""
         status.stringValue = ""
+    }
+
+    private func openImage(_ url: URL) {
         let parent = url.deletingLastPathComponent().standardizedFileURL
         if folderAccess?.url.standardizedFileURL != parent { folderAccess = nil }
         do { _ = try ImageLoader.validateFormat(url) } catch {
@@ -490,13 +513,17 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func requestFolder(_ parent: URL, generation: Int, showGallery: Bool = false) {
+    private enum FolderRequest { case imageNavigation, gallery, parent }
+
+    private func requestFolder(_ parent: URL, generation: Int, for purpose: FolderRequest = .imageNavigation) {
         guard let window, folderPanel == nil else { return }
         let panel = NSOpenPanel()
         folderPanel = panel
         panel.title = "Allow Folder Navigation"
         panel.message =
-            "Choose the image's containing folder to browse its images. Cancel to view only the opened image."
+            purpose == .parent
+            ? "Choose the parent folder to open it in Gallery."
+            : "Choose the image's containing folder to browse its images. Cancel to view only the opened image."
         panel.prompt = "Allow Folder"
         panel.directoryURL = parent
         panel.canChooseFiles = false
@@ -505,10 +532,18 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }
             if self.folderPanel === panel { self.folderPanel = nil }
-            defer { self.updateStatus() }
+            self.updateStatus()
             guard self.session.generation == generation, response == .OK, let url = panel.url else { return }
+            if purpose == .parent {
+                guard url.standardizedFileURL == parent.standardizedFileURL else {
+                    self.status.stringValue = "Choose the parent folder to move up."
+                    return
+                }
+                self.browseFolder(FileAccess(url: url), selecting: self.folderAccess?.url)
+                return
+            }
             self.useAuthorizedFolder(FileAccess(url: url))
-            if showGallery, self.folderAccess?.url.standardizedFileURL == parent {
+            if purpose == .gallery, self.folderAccess?.url.standardizedFileURL == parent {
                 self.setGalleryVisible(true)
             }
         }
@@ -533,7 +568,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     }
 
     var canRefresh: Bool {
-        openedURL != nil && !trashInProgress && window?.attachedSheet == nil
+        (openedURL != nil || folderAccess != nil) && !trashInProgress && window?.attachedSheet == nil
     }
 
     @objc func refreshImages() {
@@ -557,7 +592,7 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     private func startMonitoring() {
         changeMonitor = nil
         automaticRefreshTask?.cancel()
-        guard automaticallyRefresh, let fileAccess else { return }
+        guard automaticallyRefresh else { return }
         let generation = session.generation
         changeMonitor = ImageChangeMonitor(fileAccess: fileAccess, folderAccess: folderAccess) { [weak self] in
             Task { @MainActor [weak self] in
@@ -584,20 +619,20 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         let currentRefresh = refreshRequest
         let opened = session.entries.first(where: { $0.url == openedURL })
         let openedAccess = fileAccess
-        let discover = discoverImages
+        let discover = scanFolder
         let operation = BlockOperation()
         operation.addExecutionBlock { [weak self, weak operation] in
             guard let operation else { return }
             let result = Result {
-                var entries = try discover(access.url, { operation.isCancelled })
+                var contents = try discover(access.url, { operation.isCancelled })
                 // Keep directly opened hidden files/symlinks, but never resurrect a deleted image.
                 if !operation.isCancelled, let opened,
-                    !entries.contains(where: { $0.url == opened.url }),
+                    !contents.images.contains(where: { $0.url == opened.url }),
                     FileManager.default.fileExists(atPath: opened.url.path)
                 {
-                    entries.append((try? ImageLoader.details(at: opened.url).entry) ?? opened)
+                    contents.images.append((try? ImageLoader.details(at: opened.url).entry) ?? opened)
                 }
-                return entries
+                return contents
             }
             withExtendedLifetime((access, openedAccess)) {
                 guard !operation.isCancelled else { return }
@@ -605,9 +640,13 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
                     guard let self, self.session.generation == generation, !operation.isCancelled else { return }
                     if self.refreshRequest == currentRefresh { self.refreshingFolder = false }
                     switch result {
-                    case .success(let entries):
+                    case .success(let contents):
+                        self.folders = contents.folders
+                        if let folder = self.selectedFolder, !contents.folders.contains(folder) {
+                            self.selectedFolder = nil
+                        }
                         let selected = self.session.selectedURL
-                        self.session.replaceEntries(entries)
+                        self.session.replaceEntries(contents.images)
                         if self.session.selectedURL != selected { self.loadSelection() }
                         self.updateStatus()
                         self.prefetchNeighbor()
@@ -705,7 +744,10 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
 
     private func updateStatus() {
         let entries = session.visibleEntries
-        galleryButton.isEnabled = openedURL != nil
+        if galleryVisible, selectedFolder == nil, session.selectedURL == nil { selectedFolder = folders.first }
+        galleryButton.isEnabled = galleryVisible ? session.selectedURL != nil : openedURL != nil || folderAccess != nil
+        up.isHidden = !galleryVisible
+        up.isEnabled = canOpenParentFolder
         display.isEnabled = !galleryVisible
         info.isEnabled = !galleryVisible
         refresh.isEnabled = canRefresh
@@ -714,18 +756,20 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         if galleryVisible, let folderAccess {
             window?.title = folderAccess.url.lastPathComponent
         }
-        if let index = entries.firstIndex(where: { $0.url == session.selectedURL }) {
+        if galleryVisible, let selectedFolder {
+            status.stringValue = selectedFolder.lastPathComponent
+        } else if let index = entries.firstIndex(where: { $0.url == session.selectedURL }) {
             status.stringValue = "\(index + 1) of \(entries.count)"
         } else {
             status.stringValue =
-                openedURL == nil
+                openedURL == nil && folderAccess == nil
                 ? ImageFormat.allCases.map(\.rawValue).joined(separator: " · ") : "\(entries.count) images"
         }
         if changeMonitor?.isActive == false {
             status.stringValue += " · Automatic refresh unavailable; use Refresh"
         }
-        previous.isEnabled = !entries.isEmpty
-        next.isEnabled = !entries.isEmpty
+        previous.isEnabled = !entries.isEmpty || (galleryVisible && !folders.isEmpty)
+        next.isEnabled = previous.isEnabled
         trash.isEnabled = canTrashCurrentImage
         var filters: [String] = []
         let ratings = ratingButtons.filter { $0.state == .on }.map(\.title)
@@ -742,7 +786,8 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         browse.setAccessibilityLabel(browseLabel)
         if galleryVisible, let folderAccess {
             gallery.update(
-                entries: entries, selectedURL: session.selectedURL, folderAccess: folderAccess,
+                images: entries, folders: folders, selectedURL: selectedFolder ?? session.selectedURL,
+                folderAccess: folderAccess,
                 fileAccess: fileAccess, generation: thumbnailGeneration, preferences: session.preferences,
                 totalCount: session.entries.count, filterSummary: filterSummary.stringValue)
         }
@@ -782,11 +827,15 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     }
 
     private func navigate(_ delta: Int) {
+        if galleryVisible {
+            gallery.navigate(delta < 0 ? 123 : 124)
+            gallery.focusSelection()
+            return
+        }
         guard session.selectedURL != nil else { return }
         navigationDirection = delta < 0 ? -1 : 1
         session.navigate(delta)
         loadSelection()
-        if galleryVisible { gallery.focusSelection() }
     }
 
     @objc func previousImage() { navigate(-1) }
@@ -830,20 +879,62 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     }
 
     @objc func toggleGallery() {
-        guard let openedURL else { return }
-        let parent = openedURL.deletingLastPathComponent().standardizedFileURL
-        guard folderAccess?.url.standardizedFileURL == parent else {
-            requestFolder(parent, generation: session.generation, showGallery: true)
-            return
+        if galleryVisible {
+            guard session.selectedURL != nil else { return }
+            selectedFolder = nil
+            setGalleryVisible(false)
+            loadSelection()
+        } else if folderAccess != nil {
+            setGalleryVisible(true)
+        } else if let openedURL {
+            requestFolder(
+                openedURL.deletingLastPathComponent().standardizedFileURL, generation: session.generation, for: .gallery
+            )
         }
-        setGalleryVisible(!galleryVisible)
-        if !galleryVisible { loadSelection() }
     }
 
-    private func showSelectedImage() {
-        guard galleryVisible, session.selectedURL != nil else { return }
-        setGalleryVisible(false)
-        loadSelection()
+    private func openGallerySelection() {
+        guard galleryVisible else { return }
+        if let selectedFolder, let folderAccess {
+            guard let child = FileAccess(childFolder: selectedFolder, of: folderAccess) else {
+                status.stringValue = "Folder could not be opened. Refresh to try again."
+                return
+            }
+            browseFolder(child)
+        } else {
+            toggleGallery()
+        }
+    }
+
+    var canOpenParentFolder: Bool {
+        guard galleryVisible, let folderAccess, window?.attachedSheet == nil else { return false }
+        return folderAccess.url.standardizedFileURL.path != "/"
+    }
+
+    @objc func openParentFolder() {
+        guard canOpenParentFolder, let folderAccess else { return }
+        if let parent = folderAccess.parentFolder {
+            browseFolder(parent, selecting: folderAccess.url)
+        } else {
+            requestFolder(
+                folderAccess.url.deletingLastPathComponent().standardizedFileURL,
+                generation: session.generation, for: .parent)
+        }
+    }
+
+    private func browseFolder(_ access: FileAccess, selecting folder: URL? = nil) {
+        beginSession()
+        session.changeFolder()
+        selectedFolder = folder
+        showFolder(access)
+    }
+
+    private func showFolder(_ access: FileAccess) {
+        folderAccess = access
+        canvas.image = nil
+        setGalleryVisible(true)
+        startMonitoring()
+        discoverFolder()
     }
 
     private func setGalleryVisible(_ visible: Bool) {
@@ -963,7 +1054,7 @@ extension ViewerController {
     private func updateSelectedPresentation() {
         let preview = galleryVisible && session.preferences.galleryLayout == .preview
         let blur = session.preferences.blurredBackground
-        let url = session.selectedURL
+        let url = galleryVisible && selectedFolder != nil ? nil : session.selectedURL
         let key = "\(url?.absoluteString ?? "")|\(thumbnailGeneration)|\(cacheGeneration)|\(preview)|\(blur)"
         guard key != presentationKey else { return }
         presentationKey = key
@@ -1049,12 +1140,12 @@ extension ViewerController: NSToolbarDelegate {
         switch identifier.rawValue {
         case "Files":
             let open = CapsuleButton()
-            configureButton(open, title: "Open image", symbol: "photo", action: #selector(openPanel))
+            configureButton(open, title: "Open image or folder", symbol: "photo", action: #selector(openPanel))
             views = [galleryButton, open, refresh]
             item.label = "Gallery, Open and Refresh"
         case "Navigation":
-            views = [previous, next]
-            item.label = "Previous and Next"
+            views = [up, previous, next]
+            item.label = "Parent Folder, Previous and Next"
         case "Display":
             for control in [display, galleryLayout] {
                 control.translatesAutoresizingMaskIntoConstraints = false

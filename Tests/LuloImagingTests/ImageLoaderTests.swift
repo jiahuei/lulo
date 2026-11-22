@@ -179,7 +179,30 @@ func embeddedRatingAndSidecarExclusion() throws {
     }
 }
 
-/// Ensures folder discovery skips RAW, subdirectories, and symbolic links but retains corrupt supported images.
+/// Ensures child operations retain their parent grant and cannot use it to browse a sibling or a link.
+@Test
+func childFolderAccess() throws {
+    try withFolder { root in
+        let current = root.appendingPathComponent("current", isDirectory: true)
+        let child = current.appendingPathComponent("child", isDirectory: true)
+        let sibling = root.appendingPathComponent("sibling", isDirectory: true)
+        let link = current.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: sibling)
+        var parent: FileAccess? = FileAccess(url: current)
+        let grant = try #require(parent.flatMap { FileAccess(childFolder: child, of: $0) })
+        weak var retained = parent
+        parent = nil
+        let ancestor = try #require(grant.parentFolder)
+        #expect(ancestor === retained)
+        #expect(grant.url == child)
+        #expect(FileAccess(childFolder: sibling, of: ancestor) == nil)
+        #expect(FileAccess(childFolder: link, of: ancestor) == nil)
+    }
+}
+
+/// Ensures discovery lists immediate folders separately and keeps corrupt images available for navigation.
 @Test
 func folderDiscoveryAndRecoverableErrors() throws {
     try withFolder { folder in
@@ -192,7 +215,17 @@ func folderDiscoveryAndRecoverableErrors() throws {
         try FileManager.default.createSymbolicLink(
             at: folder.appendingPathComponent("link.png"),
             withDestinationURL: folder.appendingPathComponent("valid.png"))
-        let entries = try ImageLoader.discover(in: folder)
+        let child = folder.appendingPathComponent("nested.png", isDirectory: true)
+        for name in [".hidden", "Example.app"] {
+            try FileManager.default.createDirectory(
+                at: folder.appendingPathComponent(name), withIntermediateDirectories: false)
+        }
+        try FileManager.default.createSymbolicLink(
+            at: folder.appendingPathComponent("alias"), withDestinationURL: child)
+        try fixture(at: child.appendingPathComponent("inside.png"))
+        let contents = try ImageLoader.folderContents(in: folder)
+        #expect(contents.folders == [child])
+        let entries = contents.images
         #expect(Set(entries.map { $0.url.lastPathComponent }) == ["valid.png", "corrupt.jpg"])
         #expect(
             entries.first(where: { $0.url.lastPathComponent == "valid.png" })?.url

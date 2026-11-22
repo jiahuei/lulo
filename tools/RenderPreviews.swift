@@ -651,6 +651,39 @@ enum RenderPreviews {
         }
         clear.performClick(nil)
         try waitUntil { collection.numberOfItems(inSection: 0) == 81 }
+        fiveStars.performClick(nil)
+        jpeg.performClick(nil)
+        guard collection.numberOfItems(inSection: 0) == 0 else { throw PreviewError.galleryFailed(line: #line) }
+        // Folders stay navigable when filters exclude every image, including from an empty child.
+        let child = folder.appendingPathComponent("Albums", isDirectory: true)
+        let empty = child.appendingPathComponent("Empty", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        viewer.refreshImages()
+        try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
+        try key(36)
+        try waitUntil { window.title == "Albums" && collection.numberOfItems(inSection: 0) == 1 }
+        viewer.showRows()
+        try key(36)
+        guard window.title == "Empty", viewer.canOpenParentFolder, !viewer.canTrashCurrentImage else {
+            throw PreviewError.galleryFailed(line: #line)
+        }
+        viewer.openParentFolder()
+        try waitUntil { window.title == "Albums" && collection.selectionIndexPaths == [IndexPath(item: 0, section: 0)] }
+        viewer.openParentFolder()
+        try waitUntil { collection.numberOfItems(inSection: 0) == 1 && window.title == folder.lastPathComponent }
+        viewer.openParentFolder()
+        guard let permission = window.attachedSheet as? NSOpenPanel else {
+            throw PreviewError.galleryFailed(line: #line)
+        }
+        permission.cancel(nil)
+        try waitUntil { window.attachedSheet == nil }
+        guard window.title == folder.lastPathComponent, viewer.isGalleryVisible else {
+            throw PreviewError.galleryFailed(line: #line)
+        }
+        viewer.open(child)
+        try waitUntil { window.title == "Albums" && collection.numberOfItems(inSection: 0) == 1 }
+        viewer.open(folder)
+        try waitUntil { collection.numberOfItems(inSection: 0) == 82 }
         // A new explicit open must close the gallery and discard its old cells and thumbnail requests.
         viewer.open(fixture)
         try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == fixture.lastPathComponent }
@@ -1322,7 +1355,7 @@ enum RenderPreviews {
         let gate = ScanCheckpointGate()
         let viewer = ViewerController { folder, isCancelled in
             defer { gate.finish() }
-            return try ImageLoader.discover(
+            return try ImageLoader.folderContents(
                 in: folder,
                 isCancelled: {
                     gate.checkpoint()
@@ -1383,8 +1416,8 @@ enum RenderPreviews {
         try FileManager.default.copyItem(at: fixture, to: imageURL)
         let gate = ScanCheckpointGate()
         let viewer = ViewerController(
-            discoverImages: { folder, isCancelled in
-                try ImageLoader.discover(
+            scanFolder: { folder, isCancelled in
+                try ImageLoader.folderContents(
                     in: folder,
                     isCancelled: {
                         gate.checkpoint()
