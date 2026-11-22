@@ -651,6 +651,46 @@ enum RenderPreviews {
         }
         clear.performClick(nil)
         try waitUntil { collection.numberOfItems(inSection: 0) == 81 }
+        // Folders stay navigable even when the active filters hide every image.
+        let child = folder.appendingPathComponent("Album", isDirectory: true)
+        let empty = child.appendingPathComponent("Empty", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fixture, to: child.appendingPathComponent("inside.png"))
+        jpeg.performClick(nil)
+        viewer.refreshImages()
+        try waitUntil { collection.visibleItems().contains { $0.imageView?.accessibilityLabel() == "Album, folder" } }
+        // The corrupt JPEG still matches the format filter. Move left from it to the folder.
+        try key(123)
+        try key(36)
+        try waitUntil { window.title == "Album" && collection.numberOfItems(inSection: 0) == 1 }
+        guard collection.visibleItems().first?.textField?.stringValue == "Empty",
+            viewer.canOpenParentFolder, !viewer.canTrashCurrentImage
+        else { throw PreviewError.galleryFailed(line: #line) }
+        viewer.showRows()
+        try key(36)
+        try waitUntil { window.title == "Empty" && collection.numberOfItems(inSection: 0) == 0 }
+        viewer.openParentFolder()
+        try waitUntil { window.title == "Album" && collection.numberOfItems(inSection: 0) == 1 }
+        viewer.openParentFolder()
+        try waitUntil {
+            window.title == folder.lastPathComponent && collection.numberOfItems(inSection: 0) == 2
+                && collection.selectionIndexPaths == [IndexPath(item: 0, section: 0)]
+        }
+        viewer.openParentFolder()
+        guard let parentPanel = window.attachedSheet as? NSOpenPanel else {
+            throw PreviewError.galleryFailed(line: #line)
+        }
+        parentPanel.cancel(nil)
+        try waitUntil { window.attachedSheet == nil }
+        guard window.title == folder.lastPathComponent, collection.numberOfItems(inSection: 0) == 2 else {
+            throw PreviewError.galleryFailed(line: #line)
+        }
+        viewer.open(child)
+        try waitUntil { window.title == "Album" && collection.numberOfItems(inSection: 0) == 2 }
+        try key(36)
+        try waitUntil { window.title == "inside.png" && viewer.canTrashCurrentImage }
+        viewer.toggleGallery()
+        guard !gallery.isHidden, window.title == "Album" else { throw PreviewError.galleryFailed(line: #line) }
         // A new explicit open must close the gallery and discard its old cells and thumbnail requests.
         viewer.open(fixture)
         try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == fixture.lastPathComponent }
@@ -1322,8 +1362,8 @@ enum RenderPreviews {
         let gate = ScanCheckpointGate()
         let viewer = ViewerController { folder, isCancelled in
             defer { gate.finish() }
-            return try ImageLoader.discover(
-                in: folder,
+            return try ImageLoader.contents(
+                of: folder,
                 isCancelled: {
                     gate.checkpoint()
                     return isCancelled()
@@ -1383,9 +1423,9 @@ enum RenderPreviews {
         try FileManager.default.copyItem(at: fixture, to: imageURL)
         let gate = ScanCheckpointGate()
         let viewer = ViewerController(
-            discoverImages: { folder, isCancelled in
-                try ImageLoader.discover(
-                    in: folder,
+            discoverContents: { folder, isCancelled in
+                try ImageLoader.contents(
+                    of: folder,
                     isCancelled: {
                         gate.checkpoint()
                         return isCancelled()

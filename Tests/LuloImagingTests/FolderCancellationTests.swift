@@ -25,8 +25,8 @@ func discoveryStopsAfterInFlightMetadata(_ count: Int) throws {
     var session = ViewingSession()
     let next = ImageEntry(url: URL(fileURLWithPath: "/new-session/photo.jpg"), format: .jpeg)
     #expect(throws: CancellationError.self) {
-        try ImageLoader.discover(
-            in: folder, isCancelled: { operation.isCancelled },
+        try ImageLoader.contents(
+            of: folder, isCancelled: { operation.isCancelled },
             readEntry: { url in
                 reads += 1
                 // The read has started; opening a new session cancels the enclosing scan operation.
