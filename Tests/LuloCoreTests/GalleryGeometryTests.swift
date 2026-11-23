@@ -132,3 +132,29 @@ func thumbnailSizesDoNotDriftAtEndpoints() {
     #expect(grid.frames[1].minX - grid.frames[0].maxX == 6)
     #expect(grid.frames[2].minY - grid.frames[0].maxY == 6)
 }
+
+/// Ensures folders form their own group and images start on a new row below it in both layouts,
+/// while galleries without folders, or with only folders, keep their existing geometry.
+@Test
+func foldersFormSeparateGroup() {
+    let folders = [1.5, 1.5]
+    let images = [1.5, 0.75, 2]
+    for layout in GalleryLayout.allCases {
+        let grouped = GalleryGeometry(
+            aspectRatios: folders + images, width: 944, targetSize: 200, layout: layout,
+            leadingGroupCount: folders.count)
+        let folderOnly = GalleryGeometry(aspectRatios: folders, width: 944, targetSize: 200, layout: layout)
+        let imageOnly = GalleryGeometry(aspectRatios: images, width: 944, targetSize: 200, layout: layout)
+        let top = folderOnly.height + GalleryGeometry.groupSpacing
+        #expect(Array(grouped.frames.prefix(folders.count)) == folderOnly.frames)
+        #expect(Array(grouped.frames.dropFirst(folders.count)) == imageOnly.frames.map { $0.offsetBy(dx: 0, dy: top) })
+        #expect(abs(grouped.height - (top + imageOnly.height)) < 0.0001)
+        // Up from the first image moves into the folder group.
+        #expect(grouped.verticalNeighbor(of: folders.count, direction: -1).map { $0 < folders.count } == true)
+        for count in [0, images.count] {
+            let same = GalleryGeometry(
+                aspectRatios: images, width: 944, targetSize: 200, layout: layout, leadingGroupCount: count)
+            #expect(same.frames == imageOnly.frames && same.height == imageOnly.height)
+        }
+    }
+}

@@ -41,11 +41,32 @@ public struct GalleryGeometry: Sendable {
     public let frames: [CGRect]
     public let height: Double
 
-    public init(aspectRatios: [Double], width: Double, targetSize: Double, layout: GalleryLayout) {
+    /// A wider gap than the 6-point tile gap marks where the folder group ends and the image group begins.
+    static let groupSpacing = 18.0
+
+    /// The first `leadingGroupCount` items (the folders) form their own group.
+    /// The remaining items (the images) start on a new row below that group, so folders and images never share a row.
+    public init(
+        aspectRatios: [Double], width: Double, targetSize: Double, layout: GalleryLayout, leadingGroupCount: Int = 0
+    ) {
         let width = max(1, width)
         let target = layout.clampedSize(targetSize)
+        let split = min(max(0, leadingGroupCount), aspectRatios.count)
         var frames: [CGRect] = []
-        var y = 0.0
+        for group in [aspectRatios[..<split], aspectRatios[split...]] where !group.isEmpty {
+            let top = frames.last.map { Double($0.maxY) + Self.groupSpacing } ?? 0
+            frames += Self.layoutGroup(Array(group), width: width, target: target, layout: layout)
+                .map { $0.offsetBy(dx: 0, dy: top) }
+        }
+        self.frames = frames
+        height = Double(frames.last?.maxY ?? 0)
+    }
+
+    /// Lays out one group from y = 0. The last frame is always in the bottom row.
+    private static func layoutGroup(
+        _ aspectRatios: [Double], width: Double, target: Double, layout: GalleryLayout
+    ) -> [CGRect] {
+        var frames: [CGRect] = []
         if layout == .preview {
             let columns = max(1, Int((width + 6) / (target + 6)))
             let side = (width - Double(columns - 1) * 6) / Double(columns)
@@ -55,9 +76,9 @@ public struct GalleryGeometry: Sendable {
                         x: Double(index % columns) * (side + 6),
                         y: Double(index / columns) * (side + 6), width: side, height: side))
             }
-            y = Double(frames.last?.maxY ?? 0)
         } else {
             let ratios = aspectRatios.map { $0.isFinite && $0 > 0 ? $0 : 1.5 }
+            var y = 0.0
             var start = 0
             var previousHeight = target
             while start < ratios.count {
@@ -85,10 +106,8 @@ public struct GalleryGeometry: Sendable {
                 y += rowHeight + 6
                 start = end + 1
             }
-            if !frames.isEmpty { y -= 6 }
         }
-        self.frames = frames
-        height = y
+        return frames
     }
 
     public func verticalNeighbor(of index: Int, direction: Int) -> Int? {

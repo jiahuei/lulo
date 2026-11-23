@@ -685,12 +685,38 @@ enum RenderPreviews {
         guard window.title == folder.lastPathComponent, collection.numberOfItems(inSection: 0) == 2 else {
             throw PreviewError.galleryFailed(line: #line)
         }
+        // A refresh that adds the first image must keep the default folder selection.
+        try FileManager.default.createDirectory(
+            at: empty.appendingPathComponent("Nested", isDirectory: true), withIntermediateDirectories: false)
+        viewer.open(empty)
+        try waitUntil { window.title == "Empty" && collection.selectionIndexPaths == [IndexPath(item: 0, section: 0)] }
+        try FileManager.default.copyItem(at: fixture, to: empty.appendingPathComponent("cover.png"))
+        viewer.refreshImages()
+        try waitUntil { collection.numberOfItems(inSection: 0) == 2 }
+        guard collection.selectionIndexPaths == [IndexPath(item: 0, section: 0)] else {
+            throw PreviewError.galleryFailed(line: #line)
+        }
         viewer.open(child)
         try waitUntil { window.title == "Album" && collection.numberOfItems(inSection: 0) == 2 }
+        // Folders form their own group, so the first image starts a new row in both layouts.
+        func imagesStartNewRow() -> Bool {
+            guard let folderFrame = collection.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))?.frame,
+                let imageFrame = collection.layoutAttributesForItem(at: IndexPath(item: 1, section: 0))?.frame
+            else { return false }
+            return imageFrame.minX == folderFrame.minX && imageFrame.minY > folderFrame.maxY
+        }
+        for layout in [GalleryLayout.preview, .rows] {
+            if layout == .rows { viewer.showRows() } else { viewer.showPreview() }
+            try waitUntil { imagesStartNewRow() }
+        }
         try key(36)
         try waitUntil { window.title == "inside.png" && viewer.canTrashCurrentImage }
-        viewer.toggleGallery()
-        guard !gallery.isHidden, window.title == "Album" else { throw PreviewError.galleryFailed(line: #line) }
+        // In image view, Command-Up Arrow shows the image's folder in Gallery with the image selected.
+        guard viewer.canOpenParentFolder else { throw PreviewError.galleryFailed(line: #line) }
+        viewer.openParentFolder()
+        guard !gallery.isHidden, window.title == "Album",
+            collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)]
+        else { throw PreviewError.galleryFailed(line: #line) }
         // A new explicit open must close the gallery and discard its old cells and thumbnail requests.
         viewer.open(fixture)
         try waitUntil { gallery.isHidden && !canvas.isLoading && window.title == fixture.lastPathComponent }
@@ -1712,6 +1738,12 @@ enum RenderPreviews {
         }
         guard collection.numberOfItems(inSection: 0) == 2 else { throw PreviewError.refreshFailed(line: #line) }
         try FileManager.default.removeItem(at: first)
+        try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
+        // Adding or removing a child folder refreshes Gallery without a manual refresh.
+        let album = folder.appendingPathComponent("Album", isDirectory: true)
+        try FileManager.default.createDirectory(at: album, withIntermediateDirectories: false)
+        try waitUntil { collection.visibleItems().contains { $0.imageView?.accessibilityLabel() == "Album, folder" } }
+        try FileManager.default.removeItem(at: album)
         try waitUntil { collection.numberOfItems(inSection: 0) == 1 }
         viewer.toggleGallery()
         try waitUntil { window.title == "c.png" && !canvas.isLoading && canvas.image != nil && hasLabel("★ 4") }

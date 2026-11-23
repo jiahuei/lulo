@@ -507,7 +507,9 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
             if self.folderPanel === panel { self.folderPanel = nil }
             self.updateStatus()
             guard self.session.generation == generation, response == .OK, let url = panel.url else { return }
-            guard url.standardizedFileURL == parent else {
+            // Compare paths, not URLs. Only some directory URLs end with a slash,
+            // so URL equality can reject the folder that was requested.
+            guard url.standardizedFileURL.path == parent.path else {
                 self.status.stringValue = "Choose “\(parent.lastPathComponent)” to allow folder navigation."
                 return
             }
@@ -621,6 +623,11 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
                         }
                         let selected = self.session.selectedURL
                         self.session.replaceEntries(contents.images)
+                        // Store the default folder selection.
+                        // Otherwise a later refresh that adds an image moves the selection to that image.
+                        if self.galleryVisible, self.selectedFolder == nil, self.session.selectedURL == nil {
+                            self.selectedFolder = contents.folders.first
+                        }
                         if self.session.selectedURL != selected { self.loadSelection() }
                         self.updateStatus()
                         self.prefetchNeighbor()
@@ -868,12 +875,20 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     }
 
     var canOpenParentFolder: Bool {
-        guard galleryVisible, window?.attachedSheet == nil, let url = folderAccess?.url else { return false }
+        guard window?.attachedSheet == nil else { return false }
+        guard galleryVisible else { return openedURL != nil || folderAccess != nil }
+        guard let url = folderAccess?.url else { return false }
         return url.standardizedFileURL.path != "/"
     }
 
+    /// Moves up one level: from an image to its folder in Gallery, or from a folder to its parent.
     @objc func openParentFolder() {
-        guard canOpenParentFolder, let access = folderAccess else { return }
+        guard canOpenParentFolder else { return }
+        guard galleryVisible, let access = folderAccess else {
+            // Gallery already shows the image's folder and requests access to it when needed.
+            toggleGallery()
+            return
+        }
         if let parent = access.parentAccess {
             browseFolder(parent, selecting: access.url)
         } else {

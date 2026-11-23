@@ -195,6 +195,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         targetSize = size
         collectionLayout.presentation = mode
         collectionLayout.targetSize = size
+        collectionLayout.folderCount = folders.count
         collectionLayout.aspectRatios = entries.map { entry in
             guard let size = entry.image?.pixelSize, size.height > 0 else { return 1.5 }
             return Double(size.width / size.height)
@@ -377,6 +378,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
 @MainActor
 private final class GalleryCollectionLayout: NSCollectionViewLayout {
     var aspectRatios: [Double] = []
+    var folderCount = 0
     var presentation = GalleryLayout.rows
     var targetSize = 200.0
     private(set) var geometry = GalleryGeometry(aspectRatios: [], width: 1, targetSize: 200, layout: .rows)
@@ -386,7 +388,7 @@ private final class GalleryCollectionLayout: NSCollectionViewLayout {
         geometry = GalleryGeometry(
             aspectRatios: aspectRatios,
             width: Double(collectionView?.enclosingScrollView?.contentSize.width ?? 1), targetSize: targetSize,
-            layout: presentation)
+            layout: presentation, leadingGroupCount: folderCount)
         attributes = geometry.frames.enumerated().map { index, frame in
             let value = NSCollectionViewLayoutAttributes(forItemWith: IndexPath(item: index, section: 0))
             value.frame = frame.offsetBy(dx: 0, dy: 3)
