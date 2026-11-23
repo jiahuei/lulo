@@ -318,12 +318,19 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         for item in collection.visibleItems() { (item as? GalleryItem)?.cancelThumbnail() }
     }
 
+    /// Selects the previous (-1) or next (1) tile, including folder tiles, and wraps at either end.
+    func selectAdjacent(_ delta: Int) {
+        guard let index = entries.firstIndex(where: { $0.url == selectedURL }) else { return }
+        selectionChanged?(entries[(index + delta + entries.count) % entries.count].url)
+    }
+
     private func navigate(_ key: UInt16) {
         guard let index = entries.firstIndex(where: { $0.url == selectedURL }), !entries.isEmpty else { return }
         let next: Int?
         switch key {
-        case 123: next = (index + entries.count - 1) % entries.count
-        case 124: next = (index + 1) % entries.count
+        case 123, 124:
+            selectAdjacent(key == 123 ? -1 : 1)
+            return
         case 125: next = collectionLayout.geometry.verticalNeighbor(of: index, direction: 1)
         case 126: next = collectionLayout.geometry.verticalNeighbor(of: index, direction: -1)
         default: next = nil

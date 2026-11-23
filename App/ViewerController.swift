@@ -444,49 +444,22 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     }
 
     func open(_ url: URL) {
-        changeMonitor = nil
-        automaticRefreshTask?.cancel()
-        manualRefresh = false
-        refreshingFolder = false
-        refreshRequest += 1
-        presentationKey = ""
-        background.setImages(nil)
-        showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        browsePopover.performClose(nil)
-        setGalleryVisible(false)
-        folderPanel?.cancel(nil)
-        folderPanel = nil
-        worker.cancelAllOperations()
-        loadTask?.cancel()
-        prefetchTask?.cancel()
-        navigationDirection = 1
-        request += 1
-        cacheGeneration += 1
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+        // Finder and the open panel present packages as single files, so Lulo does not browse into them.
+        let isFolder = values?.isDirectory == true && values?.isPackage != true
+        beginSession()
         let access = FileAccess(url: url)
-        let directory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        fileAccess = directory ? nil : access
-        folders = []
-        selectedFolder = nil
-        let entry = ImageFormat(url: url).map { ImageEntry(url: url, format: $0) }
-        session.open(directory ? nil : entry)
+        session.open(isFolder ? nil : ImageFormat(url: url).map { ImageEntry(url: url, format: $0) })
         for button in ratingButtons + formatButtons { button.state = .off }
         info.state = .off
         info.setAccessibilityLabel("Show metadata")
         metadataPanel.isHidden = true
-        canvas.resetZoom()
-        metadataPanel.clear()
-        breadcrumb.rating.stringValue = ""
-        status.stringValue = ""
-        if directory {
-            folderAccess = access
-            refreshingFolder = true
-            canvas.image = nil
-            setGalleryVisible(true)
-            startMonitoring()
-            discoverFolder()
+        if isFolder {
+            showFolder(access)
             return
         }
+        fileAccess = access
+        setGalleryVisible(false)
         let parent = url.deletingLastPathComponent().standardizedFileURL
         if folderAccess?.url.standardizedFileURL != parent { folderAccess = nil }
         do { _ = try ImageLoader.validateFormat(url) } catch {
@@ -768,8 +741,8 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         if changeMonitor?.isActive == false {
             status.stringValue += " · Automatic refresh unavailable; use Refresh"
         }
-        previous.isEnabled = !entries.isEmpty
-        next.isEnabled = !entries.isEmpty
+        previous.isEnabled = !entries.isEmpty || (galleryVisible && !folders.isEmpty)
+        next.isEnabled = previous.isEnabled
         trash.isEnabled = canTrashCurrentImage
         var filters: [String] = []
         let ratings = ratingButtons.filter { $0.state == .on }.map(\.title)
@@ -828,12 +801,16 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
     }
 
     private func navigate(_ delta: Int) {
+        if galleryVisible {
+            // Previous and Next follow the gallery tile order, as the arrow keys do, so folders are included.
+            gallery.selectAdjacent(delta)
+            gallery.focusSelection()
+            return
+        }
         guard session.selectedURL != nil else { return }
         navigationDirection = delta < 0 ? -1 : 1
-        selectedFolder = nil
         session.navigate(delta)
         loadSelection()
-        if galleryVisible { gallery.focusSelection() }
     }
 
     @objc func previousImage() { navigate(-1) }
@@ -904,14 +881,44 @@ final class ViewerController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func browseFolder(_ access: FileAccess, selecting child: URL? = nil) {
-        worker.cancelAllOperations()
-        fileAccess = nil
-        folderAccess = access
-        folders = []
-        selectedFolder = child.map { access.url.appendingPathComponent($0.lastPathComponent, isDirectory: true) }
-        session.changeFolder()
+    /// Ends the current session's background work and clears its state before another file or folder opens.
+    private func beginSession() {
+        changeMonitor = nil
+        automaticRefreshTask?.cancel()
         manualRefresh = false
+        refreshingFolder = false
+        refreshRequest += 1
+        presentationKey = ""
+        background.setImages(nil)
+        showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        browsePopover.performClose(nil)
+        folderPanel?.cancel(nil)
+        folderPanel = nil
+        worker.cancelAllOperations()
+        loadTask?.cancel()
+        prefetchTask?.cancel()
+        navigationDirection = 1
+        request += 1
+        cacheGeneration += 1
+        fileAccess = nil
+        folders = []
+        selectedFolder = nil
+        canvas.resetZoom()
+        metadataPanel.clear()
+        breadcrumb.rating.stringValue = ""
+        status.stringValue = ""
+    }
+
+    private func browseFolder(_ access: FileAccess, selecting child: URL? = nil) {
+        beginSession()
+        session.changeFolder()
+        selectedFolder = child.map { access.url.appendingPathComponent($0.lastPathComponent, isDirectory: true) }
+        showFolder(access)
+    }
+
+    private func showFolder(_ access: FileAccess) {
+        folderAccess = access
         refreshingFolder = true
         canvas.image = nil
         setGalleryVisible(true)

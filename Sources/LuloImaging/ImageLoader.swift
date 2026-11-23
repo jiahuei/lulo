@@ -283,7 +283,7 @@ public final class FileAccess: @unchecked Sendable {
     public init?(childFolder url: URL, of parent: FileAccess) {
         guard url.deletingLastPathComponent().standardizedFileURL == parent.url.standardizedFileURL,
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]),
-            values.isDirectory == true, values.isSymbolicLink != true, values.isPackage != true
+            values.isDirectory == true, values.isSymbolicLink == false, values.isPackage != true
         else { return nil }
         self.url = url
         parentAccess = parent

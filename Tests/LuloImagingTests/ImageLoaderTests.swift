@@ -234,6 +234,26 @@ func galleryFolderDiscovery() throws {
     }
 }
 
+/// Ensures a child folder keeps its parent's grant alive after the gallery drops the parent,
+/// and that the parent grant cannot be used to open a sibling folder.
+@Test
+func childFolderAccessRetainsParent() throws {
+    try withFolder { root in
+        let current = root.appendingPathComponent("current", isDirectory: true)
+        let child = current.appendingPathComponent("child", isDirectory: true)
+        let sibling = root.appendingPathComponent("sibling", isDirectory: true)
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: false)
+        var parent: FileAccess? = FileAccess(url: current)
+        weak var retained = parent
+        let grant = try #require(parent.flatMap { FileAccess(childFolder: child, of: $0) })
+        parent = nil
+        let ancestor = try #require(grant.parentAccess)
+        #expect(ancestor === retained)
+        #expect(FileAccess(childFolder: sibling, of: ancestor) == nil)
+    }
+}
+
 /// Ensures capture timestamps respect embedded offsets and missing/invalid fields remain optional.
 @Test
 func captureTimestamp() {
