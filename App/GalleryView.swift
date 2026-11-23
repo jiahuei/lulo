@@ -41,6 +41,10 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
     private var presentation = GalleryLayout.rows
     private var targetSize = 200.0
     private var fullPreview = false
+    /// The poster shows the system folder icon instead of an image preview.
+    private var posterShowsFolder = false
+    /// The largest side of the folder icon in the Preview poster, in points.
+    private static let folderIconSide: CGFloat = 128
     var selectionChanged: ((URL) -> Void)?
     var openSelection: (() -> Void)?
     var clearFilters: (() -> Void)?
@@ -161,11 +165,20 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
                 width: ratingSize.width, height: ratingSize.height)
             let imageBottom = caption.frame.maxY + 16
             let availableHeight = max(1, poster.bounds.height - imageBottom)
-            let sourceSize = posterImage.image?.size ?? NSSize(width: 3, height: 2)
-            let imageHeight = min(availableHeight, poster.bounds.width * sourceSize.height / max(1, sourceSize.width))
-            posterImage.frame = NSRect(
-                x: 0, y: imageBottom + (availableHeight - imageHeight) / 2,
-                width: poster.bounds.width, height: imageHeight)
+            if posterShowsFolder {
+                // A folder icon does not fill the poster. Cap it and centre it in the poster area.
+                let iconSide = min(Self.folderIconSide, availableHeight, poster.bounds.width)
+                posterImage.frame = NSRect(
+                    x: (poster.bounds.width - iconSide) / 2, y: imageBottom + (availableHeight - iconSide) / 2,
+                    width: iconSide, height: iconSide)
+            } else {
+                let sourceSize = posterImage.image?.size ?? NSSize(width: 3, height: 2)
+                let imageHeight = min(
+                    availableHeight, poster.bounds.width * sourceSize.height / max(1, sourceSize.width))
+                posterImage.frame = NSRect(
+                    x: 0, y: imageBottom + (availableHeight - imageHeight) / 2,
+                    width: poster.bounds.width, height: imageHeight)
+            }
             scroll.frame = NSRect(
                 x: posterWidth + 8, y: 0, width: max(1, bounds.width - posterWidth - 30),
                 height: max(1, bounds.height - 10))
@@ -250,6 +263,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         if self.selectedURL != selected?.url || refreshed {
             self.selectedURL = selected?.url
             fullPreview = false
+            posterShowsFolder = folderSelected
             posterImage.image = folderSelected ? NSImage(named: NSImage.folderName) : nil
             posterImage.setAccessibilityLabel(selectedURL?.lastPathComponent)
             viewButton.title = folderSelected ? "Open" : "View"
@@ -270,6 +284,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
     func showPreview(_ image: CGImage, details: ImageDetails? = nil) {
         guard !fullPreview || details != nil else { return }
         fullPreview = details != nil
+        posterShowsFolder = false
         posterImage.image = NSImage(cgImage: image, size: .zero)
         posterImage.setAccessibilityLabel(caption.stringValue)
         needsLayout = true
@@ -309,6 +324,7 @@ final class GalleryView: NSView, NSCollectionViewDataSource, NSCollectionViewDel
         collectionLayout.aspectRatios = []
         collectionLayout.invalidateLayout()
         selectedURL = nil
+        posterShowsFolder = false
         posterImage.image = nil
         collection.reloadData()
         folderAccess = nil

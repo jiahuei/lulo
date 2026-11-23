@@ -709,6 +709,20 @@ enum RenderPreviews {
             if layout == .rows { viewer.showRows() } else { viewer.showPreview() }
             try waitUntil { imagesStartNewRow() }
         }
+        // A selected folder shows a capped folder icon, centred in the Preview poster.
+        viewer.showPreview()
+        guard
+            let folderPoster = descendants(gallery).compactMap({ $0 as? NSImageView })
+                .first(where: { !($0 is GalleryThumbnailView) }), let posterArea = folderPoster.superview
+        else { throw PreviewError.galleryFailed(line: #line) }
+        try key(123)
+        try waitUntil {
+            let frame = folderPoster.frame
+            return collection.selectionIndexPaths == [IndexPath(item: 0, section: 0)] && folderPoster.image != nil
+                && frame.width == 128 && frame.height == 128 && abs(frame.midX - posterArea.bounds.midX) < 1
+        }
+        try key(124)
+        try waitUntil { collection.selectionIndexPaths == [IndexPath(item: 1, section: 0)] }
         try key(36)
         try waitUntil { window.title == "inside.png" && viewer.canTrashCurrentImage }
         // In image view, Command-Up Arrow shows the image's folder in Gallery with the image selected.
