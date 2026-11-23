@@ -210,6 +210,50 @@ func folderDiscoveryAndRecoverableErrors() throws {
     }
 }
 
+/// Ensures Gallery lists only immediate visible folders and keeps them separate from image decoding.
+@Test
+func galleryFolderDiscovery() throws {
+    try withFolder { root in
+        let manager = FileManager.default
+        for name in ["Album10", "Album2", ".hidden", "Tool.app"] {
+            try manager.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: false)
+        }
+        let album = root.appendingPathComponent("Album2", isDirectory: true)
+        let link = root.appendingPathComponent("shortcut")
+        try manager.createSymbolicLink(at: link, withDestinationURL: album)
+        try fixture(at: album.appendingPathComponent("nested.png"))
+        let contents = try ImageLoader.contents(of: root)
+        #expect(contents.folders.map(\.lastPathComponent) == ["Album2", "Album10"])
+        #expect(contents.images.isEmpty)
+        let grant = FileAccess(url: root)
+        let child = try #require(FileAccess(childFolder: album, of: grant))
+        #expect(child.parentAccess === grant)
+        #expect(FileAccess(childFolder: link, of: grant) == nil)
+        #expect(FileAccess(childFolder: root, of: child) == nil)
+        #expect(try ImageLoader.contents(of: child.url).images.map { $0.url.lastPathComponent } == ["nested.png"])
+    }
+}
+
+/// Ensures a child folder keeps its parent's grant alive after the gallery drops the parent,
+/// and that the parent grant cannot be used to open a sibling folder.
+@Test
+func childFolderAccessRetainsParent() throws {
+    try withFolder { root in
+        let current = root.appendingPathComponent("current", isDirectory: true)
+        let child = current.appendingPathComponent("child", isDirectory: true)
+        let sibling = root.appendingPathComponent("sibling", isDirectory: true)
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: false)
+        var parent: FileAccess? = FileAccess(url: current)
+        weak var retained = parent
+        let grant = try #require(parent.flatMap { FileAccess(childFolder: child, of: $0) })
+        parent = nil
+        let ancestor = try #require(grant.parentAccess)
+        #expect(ancestor === retained)
+        #expect(FileAccess(childFolder: sibling, of: ancestor) == nil)
+    }
+}
+
 /// Ensures capture timestamps respect embedded offsets and missing/invalid fields remain optional.
 @Test
 func captureTimestamp() {

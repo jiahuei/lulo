@@ -163,6 +163,12 @@ public struct ViewingSession: Sendable {
         sidebarVisible = false
     }
 
+    /// A folder change starts a new scan while preserving the current browse settings.
+    public mutating func changeFolder() {
+        generation += 1
+        replaceEntries([])
+    }
+
     public mutating func replaceEntries(_ entries: [ImageEntry]) {
         self.entries = entries
         rebuildVisibleEntries()

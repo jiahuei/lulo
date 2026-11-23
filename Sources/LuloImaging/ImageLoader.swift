@@ -68,42 +68,50 @@ public enum ImageLoader {
     }
 
     public static func discover(in folder: URL, isCancelled: () -> Bool = { false }) throws -> [ImageEntry] {
-        try discover(in: folder, isCancelled: isCancelled, readEntry: { try details(at: $0).entry })
+        try contents(of: folder, isCancelled: isCancelled).images
+    }
+
+    public typealias FolderContents = (images: [ImageEntry], folders: [URL])
+
+    public static func contents(of folder: URL, isCancelled: () -> Bool = { false }) throws -> FolderContents {
+        try contents(of: folder, isCancelled: isCancelled, readEntry: { try details(at: $0).entry })
     }
 
     // The metadata-read boundary allows deterministic cancellation tests without timing Image I/O.
-    static func discover(
-        in folder: URL, isCancelled: () -> Bool, readEntry: (URL) throws -> ImageEntry
-    ) throws -> [ImageEntry] {
+    static func contents(
+        of folder: URL, isCancelled: () -> Bool, readEntry: (URL) throws -> ImageEntry
+    ) throws -> FolderContents {
         func checkCancellation() throws {
             if isCancelled() { throw CancellationError() }
         }
         try checkCancellation()
+        let keys: Set<URLResourceKey> = [
+            .isRegularFileKey, .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .creationDateKey,
+        ]
         let urls = try FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .creationDateKey],
-            options: [.skipsHiddenFiles])
-        let entries = try urls.compactMap { discoveredURL -> ImageEntry? in
+            at: folder, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])
+        var images: [ImageEntry] = []
+        var folders: [URL] = []
+        for discoveredURL in urls {
             try checkCancellation()
-            // FileManager may return a resolved path (for example /private/var instead of /var).
-            // Keep entries rooted in the granted folder so the opened image is not added twice.
-            let url = folder.appendingPathComponent(discoveredURL.lastPathComponent)
-            guard let format = ImageFormat(url: url),
-                let values = try? discoveredURL.resourceValues(forKeys: [
-                    .isRegularFileKey, .isSymbolicLinkKey, .creationDateKey,
-                ]
-                ),
-                values.isRegularFile == true, values.isSymbolicLink != true
-            else { return nil }
-            // Keep unreadable supported files navigable so a single bad file does not block the folder.
-            let entry =
-                (try? readEntry(url))
-                ?? ImageEntry(url: url, format: format, createdAt: values.creationDate)
-            try checkCancellation()
-            return entry
+            guard let values = try? discoveredURL.resourceValues(forKeys: keys), values.isSymbolicLink != true else {
+                continue
+            }
+            // Keep entries rooted in the granted path even when FileManager returns its resolved spelling.
+            let directory = values.isDirectory == true
+            let url = folder.appendingPathComponent(discoveredURL.lastPathComponent, isDirectory: directory)
+            if directory && values.isPackage != true {
+                folders.append(url)
+            } else if values.isRegularFile == true, let format = ImageFormat(url: url) {
+                // Unreadable images stay navigable so one bad file does not block the folder.
+                images.append(
+                    (try? readEntry(url)) ?? ImageEntry(url: url, format: format, createdAt: values.creationDate))
+                try checkCancellation()
+            }
         }
-        // Also cover empty folders and a cancellation after the final skipped entry.
         try checkCancellation()
-        return entries
+        folders.sort { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        return (images, folders)
     }
 
     public static func details(at url: URL) throws -> ImageDetails {
@@ -262,11 +270,24 @@ public enum ImageLoader {
 // URL scope methods are thread-safe; the immutable lease is shared with the serial worker.
 public final class FileAccess: @unchecked Sendable {
     public let url: URL
+    public let parentAccess: FileAccess?
     private let scoped: Bool
 
     public init(url: URL) {
         self.url = url
+        parentAccess = nil
         scoped = url.startAccessingSecurityScopedResource()
+    }
+
+    /// A discovered child uses its parent's live grant, including while a background read finishes.
+    public init?(childFolder url: URL, of parent: FileAccess) {
+        guard url.deletingLastPathComponent().standardizedFileURL == parent.url.standardizedFileURL,
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]),
+            values.isDirectory == true, values.isSymbolicLink == false, values.isPackage != true
+        else { return nil }
+        self.url = url
+        parentAccess = parent
+        scoped = false
     }
 
     deinit {
